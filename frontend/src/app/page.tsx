@@ -7,34 +7,39 @@ import { BotStatusCard } from "@/components/dashboard/BotStatusCard";
 import { ComponentHealthGrid } from "@/components/dashboard/ComponentHealthGrid";
 import { StreamOverviewShell } from "@/components/dashboard/StreamOverviewShell";
 import { QuickControls } from "@/components/dashboard/QuickControls";
-import { fetchSystemHealth } from "@/lib/api";
-import { SystemHealthData } from "@/lib/types";
+import { fetchActiveStreams, fetchSystemHealth } from "@/lib/api";
+import { StreamSessionSummary, SystemHealthData } from "@/lib/types";
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState("dashboard");
   const [healthData, setHealthData] = useState<SystemHealthData | null>(null);
+  const [activeStreams, setActiveStreams] = useState<StreamSessionSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const loadHealth = useCallback(async () => {
+  const loadData = useCallback(async () => {
     try {
       setIsLoading(true);
-      const data = await fetchSystemHealth();
-      setHealthData(data);
+      const [health, streams] = await Promise.all([
+        fetchSystemHealth(),
+        fetchActiveStreams(),
+      ]);
+      setHealthData(health);
+      setActiveStreams(streams);
       setError(null);
     } catch (err: any) {
-      setError(err.message || "Failed to fetch health");
+      setError(err.message || "Failed to fetch telemetry data");
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadHealth();
-    // Auto-refresh health every 5 seconds
-    const interval = setInterval(loadHealth, 5000);
+    loadData();
+    // Auto-refresh telemetry every 5 seconds
+    const interval = setInterval(loadData, 5000);
     return () => clearInterval(interval);
-  }, [loadHealth]);
+  }, [loadData]);
 
   const isConnected = !!healthData && !error;
 
@@ -56,15 +61,15 @@ export default function DashboardPage() {
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <span className="text-xs font-mono text-cyan-400 font-semibold tracking-wider uppercase">
-                Milestone 0 &bull; Local Foundation
+                Milestone 1 &bull; YouTube Engine Live
               </span>
             </div>
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
               Creator Control Center
             </h1>
             <p className="text-xs sm:text-sm text-slate-400 max-w-3xl">
-              Real-time monitoring and orchestration hub for Goddess AI 2.0. Built local-first with FastAPI,
-              Next.js, multi-stream architecture, and quota-aware API rotation.
+              Real-time multi-stream orchestration hub for Goddess AI 2.0. Managing up to 4 concurrent
+              YouTube Live streams with quota-aware key rotation, isolated chat readers, and event bus dispatching.
             </p>
           </div>
 
@@ -75,10 +80,10 @@ export default function DashboardPage() {
           <ComponentHealthGrid components={healthData?.components} />
 
           {/* 4 Stream Capacity Grid */}
-          <StreamOverviewShell />
+          <StreamOverviewShell sessions={activeStreams} onRefresh={loadData} />
 
           {/* Module Switchboard Controls */}
-          <QuickControls onRefresh={loadHealth} isRefreshing={isLoading} />
+          <QuickControls onRefresh={loadData} isRefreshing={isLoading} />
         </main>
       </div>
     </div>
