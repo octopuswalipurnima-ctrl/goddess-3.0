@@ -81,6 +81,11 @@ class CommandsModule(BaseModule):
         if cmd_name not in commands_map:
             return
 
+        # Check idempotency
+        from app.core.idempotency import idempotency_manager
+        if msg.message_id and not await idempotency_manager.register_action(f"cmd:{msg.message_id}", stream_id=stream_id):
+            return
+
         # Check cooldowns (default: 5s per command, 10s per user)
         cmd_cooldown = config.settings.get("command_cooldown_sec", 5.0)
         user_cooldown = config.settings.get("user_cooldown_sec", 10.0)

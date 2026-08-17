@@ -162,6 +162,9 @@ class StreamSupervisorSession:
             )
             await self.session.start()
 
+            from app.core.circuit_breaker import circuit_breakers
+            circuit_breakers.get("youtube").record_success()
+
             self.state = (
                 SupervisorState.SAFE_MODE
                 if safety_controller.is_stream_safe_mode(self.stream_id)
@@ -172,6 +175,8 @@ class StreamSupervisorSession:
             return True
 
         except Exception as exc:
+            from app.core.circuit_breaker import circuit_breakers
+            circuit_breakers.get("youtube").record_failure()
             code, sanitized_msg, _ = classify_provider_error(exc)
             self.state = SupervisorState.DEGRADED if self.reconnect_attempts < 5 else SupervisorState.FAILED
             self.last_error = sanitized_msg

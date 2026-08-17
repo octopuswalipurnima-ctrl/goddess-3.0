@@ -79,29 +79,58 @@ async def lifespan(app: FastAPI):
     from app.modules import module_manager
     await module_manager.start_all()
 
-    # 10. Mark Ready
+    # 10. Autonomous Health Supervisor
+    from app.services.operations.health_supervisor import health_supervisor
+    await health_supervisor.start()
+
+    # 11. Mark Ready
     logger.info(f"{settings.app_name} is READY to accept traffic.")
 
     yield
 
     # Shutdown Sequence
     logger.info(f"Initiating graceful shutdown of {settings.app_name}...")
+
+    # 1. Mark Safety Controller as SHUTTING_DOWN
+    try:
+        from app.core.safety_controller import safety_controller
+        await safety_controller.enter_shutting_down()
+    except Exception as exc:
+        logger.warning(f"Error updating safety state during shutdown: {exc}")
+
+    # 2. Stop Health Supervisor
+    try:
+        await health_supervisor.stop()
+    except Exception as exc:
+        logger.warning(f"Error stopping health supervisor: {exc}")
+
+    # 3. Stop Stream Supervisors
+    try:
+        from app.services.youtube.stream_supervisor import stream_supervisor
+        await stream_supervisor.shutdown()
+    except Exception as exc:
+        logger.warning(f"Error shutting down stream supervisor: {exc}")
+
+    # 4. Stop Modules
     try:
         await module_manager.stop_all()
     except Exception as exc:
         logger.warning(f"Error stopping modules during shutdown: {exc}")
 
+    # 5. Stop Gemini Queue
     try:
         from app.services.gemini import gemini_manager
         await gemini_manager.shutdown()
     except Exception as exc:
         logger.warning(f"Error shutting down Gemini manager: {exc}")
 
+    # 6. Close Redis Connection
     try:
         await redis_state.close()
     except Exception as exc:
         logger.warning(f"Error closing Redis: {exc}")
 
+    # 7. Close Database Connection
     try:
         await close_db()
     except Exception as exc:

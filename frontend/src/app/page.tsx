@@ -13,6 +13,7 @@ import { AIOperationsPanel } from "@/components/dashboard/AIOperationsPanel";
 import { ProviderHealthPanel } from "@/components/dashboard/ProviderHealthPanel";
 import { AuditLogPanel } from "@/components/dashboard/AuditLogPanel";
 import { SafetyControls } from "@/components/dashboard/SafetyControls";
+import { IncidentCenter } from "@/components/dashboard/IncidentCenter";
 import { ActivityTimeline } from "@/components/dashboard/ActivityTimeline";
 import { fetchDashboardOverview, fetchSystemHealth } from "@/lib/api";
 import { ConnectionState, DashboardOverview, SystemHealthData } from "@/lib/types";
@@ -125,7 +126,10 @@ export default function CreatorControlCenterPage() {
             <ProviderHealthPanel />
           </div>
 
-          {/* 8. Operational Audit Log & Activity Timeline */}
+          {/* 8. Production Incident & Recovery Center */}
+          <IncidentCenter />
+
+          {/* 9. Operational Audit Log & Activity Timeline */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <AuditLogPanel />
             <ActivityTimeline />
