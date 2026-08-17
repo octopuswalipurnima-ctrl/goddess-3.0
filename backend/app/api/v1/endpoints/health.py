@@ -218,6 +218,25 @@ async def get_health():
         },
     )
 
+    # Modular Extension System Status
+    from app.modules import module_manager
+    all_mods = module_manager.registry.list_all()
+    enabled_count = sum(1 for m in all_mods if m.is_enabled)
+    running_count = sum(1 for m in all_mods if m.is_running)
+    failed_count = sum(1 for m in all_mods if m.status.value == "FAILED")
+
+    components["modules"] = ComponentStatus(
+        status="HEALTHY" if failed_count == 0 else "DEGRADED",
+        details=f"Module System active: {running_count}/{len(all_mods)} running, {enabled_count} enabled, {failed_count} failed",
+        metadata={
+            "registered_modules": len(all_mods),
+            "enabled_modules": enabled_count,
+            "running_modules": running_count,
+            "failed_modules": failed_count,
+            "module_ids": [m.module_id for m in all_mods],
+        },
+    )
+
     return HealthResponse(
         application="HEALTHY",
         version=settings.app_version,

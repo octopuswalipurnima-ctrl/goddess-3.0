@@ -26,16 +26,21 @@ async def lifespan(app: FastAPI):
     logger.info(f"YouTube keys registered: {len(settings.youtube_api_keys)}")
     logger.info(f"Gemini keys registered: {len(settings.gemini_api_keys)}")
 
-    # Start AI, Moderation, and Co-Host subsystems
+    # Start AI, Moderation, Co-Host, and Module subsystems
     from app.services.moderation import moderation_manager
     moderation_manager.start()
 
     from app.services.cohost import cohost_manager
     cohost_manager.start()
 
+    from app.modules import module_manager
+    await module_manager.start_all()
+
     yield
 
     # Shutdown
+    await module_manager.stop_all()
+
     from app.services.gemini import gemini_manager
     await gemini_manager.shutdown()
     logger.info(f"Shutting down {settings.app_name}...")

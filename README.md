@@ -1,12 +1,12 @@
 # GODDESS AI 2.0 🌟
 
-> **Next-Generation YouTube Live Multi-Stream Orchestration, Real-Time Moderation, and AI Co-Host Platform**
+> **Next-Generation YouTube Live Multi-Stream Orchestration, Real-Time Moderation, AI Co-Host, and Pluggable Extension Platform**
 
 ---
 
 ## 📖 Overview
 
-**GODDESS AI 2.0** is an enterprise-grade, asynchronous live streaming management platform built from scratch. It is engineered to monitor and orchestrate up to **4 simultaneous YouTube live streams** (handling 800+ aggregate concurrent viewers), provide **multi-tiered AI moderation**, power an interactive **Gemini AI Co-Host**, and support **Nightbot-style commands**, **Viewer XP/VIP progression**, and modular plug-and-play extensions.
+**GODDESS AI 2.0** is an enterprise-grade, asynchronous live streaming management platform built from scratch. It is engineered to monitor and orchestrate up to **4 simultaneous YouTube live streams** (handling 800+ aggregate concurrent viewers), provide **multi-tiered AI moderation**, power an interactive **Gemini AI Co-Host**, run **pluggable extension modules** (Chat Commands, Viewer Welcome, Live Stats, Viewer Interaction), and offer a unified **Creator Control Center** with real-time WebSocket telemetry and emergency fail-safes.
 
 ---
 
@@ -17,10 +17,9 @@
 - **Gemini AI Engine**: 4-key rotation, token-bucket rate limiter, priority request queue (`HIGH`/`NORMAL`/`LOW`), model router (`gemini-2.5-flash` with `gemini-2.5-flash-lite` fallback), and empty-response classification.
 - **3-Tier AI Moderation Engine**: High-speed deterministic rules + contextual Gemini AI semantic analysis (`priority=HIGH`) + Action Policy safety gates (kill switch, safe mode, owner/mod exemptions, per-user cooldowns, idempotency).
 - **Interactive AI Co-Host Engine**: Rule-first intent detection, bounded short-term memory (20 stream msgs, 5 user msgs), personality framing, Gemini AI (`priority=NORMAL`), max 200-char length capping, anti-spam cooldowns (5s global, 30s user), and DRY_RUN mode.
-- **Asynchronous Backend**: Python 3.12 + FastAPI + Asyncio + Pydantic v2 Settings.
-- **Internal Event Bus**: Asynchronous publish/subscribe decoupled message pipeline.
-- **Creator Dashboard**: Next.js 15 + TypeScript + Tailwind CSS with dark slate theme, moderation feed, co-host switchboard, and live telemetry.
-- **Honest Status Diagnostics**: Component states clearly distinguish `HEALTHY`, `NOT_CONFIGURED`, `UNAVAILABLE`, `DEGRADED`, and `ERROR`.
+- **Modular Plugin / Extension System**: Standardized lifecycle (`DISCOVER` &rarr; `REGISTER` &rarr; `LOAD` &rarr; `ENABLE` &rarr; `RUNNING`), dependency graphs, failure isolation, and built-in modules (`commands`, `welcome`, `stream_stats`, `viewer_interaction`).
+- **Creator Control Center**: Next.js 15 + TypeScript + Tailwind CSS with dark slate theme, 4-stream live overview, focused stream controls, moderation feed, co-host switchboard, module manager, AI/YouTube diagnostics, bounded activity timeline, and emergency confirmation dialogs.
+- **Honest Status Diagnostics**: Component states clearly distinguish `HEALTHY`, `DEGRADED`, `NOT_CONFIGURED`, `UNAVAILABLE`, and `ERROR`.
 
 ---
 
@@ -32,23 +31,31 @@ Goddess-AI-2.0/
 ├── backend/                  # Asynchronous FastAPI backend service
 │   ├── app/
 │   │   ├── api/v1/          # REST & WebSocket API routers
-│   │   │   └── endpoints/   # Health, WebSocket, Stream, AI, Moderation, and Co-Host routers
+│   │   │   └── endpoints/   # Health, Dashboard, Stream, AI, Moderation, Co-Host, Modules, WS
 │   │   ├── core/            # Config (Pydantic), Logging, Event Bus
 │   │   ├── services/        # Subsystem services
 │   │   │   ├── youtube/     # YouTube Engine (Credentials, Client, Sessions, Chat, Detection)
 │   │   │   ├── gemini/      # Gemini AI Engine (Credentials, Rate Limiter, Queue, Router, Client, Manager)
 │   │   │   ├── moderation/  # AI Moderation Engine (Rules, Classifier, Policy, Actions, Audit, Manager)
-│   │   │   └── cohost/      # AI Co-Host Engine (Intents, Context, Personality, Generator, Policy, Cooldowns, Deduplication, Audit, Manager)
+│   │   │   └── cohost/      # AI Co-Host Engine (Intents, Context, Persona, Generator, Policy, Cooldowns, Deduplication, Audit, Manager)
+│   │   ├── modules/         # Modular Extension System
+│   │   │   ├── base.py      # BaseModule contract and lifecycle state machine
+│   │   │   ├── registry.py  # Module registry and topological dependency resolution
+│   │   │   ├── manager.py   # Module manager with isolated EventBus routing
+│   │   │   ├── commands/    # Safe prefix chat commands (!help, !discord, !socials, !rules)
+│   │   │   ├── welcome/     # New/returning viewer welcome greetings
+│   │   │   ├── stream_stats/# Live stream telemetry counters
+│   │   │   └── viewer_interaction/ # Interaction tracking foundation
 │   │   └── main.py          # FastAPI application entrypoint
-│   ├── tests/               # Pytest automated test suites (105 unit & integration tests)
+│   ├── tests/               # Pytest automated test suites (125 unit & integration tests)
 │   ├── requirements.txt     # Python dependency lockfile
 │   └── pyproject.toml       # Python packaging and test configuration
 │
-├── frontend/                 # Next.js 15 Creator Dashboard
+├── frontend/                 # Next.js 15 Creator Control Center
 │   ├── src/
 │   │   ├── app/             # Next.js App Router (Layout & Pages)
-│   │   ├── components/      # Modular UI components (Co-Host Panel, Moderation Panel, Health Grid, Streams, Nav)
-│   │   └── lib/             # Typed API client and data models
+│   │   ├── components/      # Modular UI components (Global Health, 4-Stream Overview, Stream Controls, Moderation Center, Co-Host Center, Module Center, Diagnostics, Timeline, Emergency Controls)
+│   │   └── lib/             # Centralized WebSocket manager and typed API clients
 │   ├── package.json
 │   └── tailwind.config.ts
 │
@@ -58,6 +65,8 @@ Goddess-AI-2.0/
 │   ├── gemini.md            # Gemini AI engine & model router guide
 │   ├── moderation.md        # 3-tier moderation engine & safety gates guide
 │   ├── cohost.md            # Interactive AI co-host & personality guide
+│   ├── modules.md           # Pluggable module system guide
+│   ├── dashboard.md         # Creator control center guide
 │   ├── setup.md             # Beginner local setup instructions
 │   └── roadmap.md           # Master development roadmap
 │
@@ -100,10 +109,8 @@ cd backend
 .venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 - Interactive API Docs: [http://localhost:8000/docs](http://localhost:8000/docs)
-- Streams REST API: [http://localhost:8000/api/v1/streams](http://localhost:8000/api/v1/streams)
-- AI Test API: [http://localhost:8000/api/v1/ai/test](http://localhost:8000/api/v1/ai/test)
-- Moderation API: [http://localhost:8000/api/v1/moderation/stats](http://localhost:8000/api/v1/moderation/stats)
-- Co-Host API: [http://localhost:8000/api/v1/cohost/stats](http://localhost:8000/api/v1/cohost/stats)
+- Dashboard Overview API: [http://localhost:8000/api/v1/dashboard/overview](http://localhost:8000/api/v1/dashboard/overview)
+- Modules API: [http://localhost:8000/api/v1/modules](http://localhost:8000/api/v1/modules)
 - Health Diagnostics: [http://localhost:8000/api/v1/health](http://localhost:8000/api/v1/health)
 
 #### Frontend Dashboard (Port 3000)
@@ -111,13 +118,13 @@ cd backend
 cd frontend
 npm run dev
 ```
-- Creator Dashboard: [http://localhost:3000](http://localhost:3000)
+- Creator Control Center: [http://localhost:3000](http://localhost:3000)
 
 ---
 
 ## 🧪 Running Automated Tests
 
-To execute the full Pytest test suite (105 tests across all components):
+To execute the full Pytest test suite (125 tests across all components):
 ```powershell
 .\scripts\test.ps1
 ```
@@ -133,6 +140,6 @@ To execute the full Pytest test suite (105 tests across all components):
 | **Milestone 2** | Phase 4 | Centralized Gemini AI Engine, 4-Key Rotation, Rate Limiter, Priority Queue, Flash/Flash-Lite Router | ✅ Completed |
 | **Milestone 3** | Phase 5 | 3-Tier Moderation Engine (Rules + Behavioral + Gemini Classification), Kill Switch, Safe Mode | ✅ Completed |
 | **Milestone 4** | Phase 6 | Interactive AI Co-Host Engine (Intents, 20-Msg Context, Persona, Cooldowns, Normal Priority) | ✅ Completed |
-| **Milestone 5** | Phase 7 | Nightbot-Style Custom Command Engine & Permissions | ⏳ Next |
-| **Milestone 6** | Phase 8 & 9 | Viewer XP/VIP Progression & Modular Switchboard | ⏳ Upcoming |
-| **Milestone 7** | Phase 1-2, 10-14 | PostgreSQL/Redis Persistence, Creator Dashboard Hardening, GitHub & Railway Deployment | ⏳ Upcoming |
+| **Milestone 5** | Phase 7 | Modular Module System (BaseModule, Registry, Manager, Commands, Welcome, Stats, Interaction) | ✅ Completed |
+| **Milestone 6** | Phase 8 | Creator Control Center & Real-Time Dashboard (4-Stream Overview, Stream Controls, Diagnostics) | ✅ Completed |
+| **Milestone 7** | Phase 9-14 | PostgreSQL/Redis Persistence, Security Hardening, GitHub & Railway Deployment | ⏳ Upcoming |

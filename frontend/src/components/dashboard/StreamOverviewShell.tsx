@@ -167,7 +167,7 @@ export function StreamOverviewShell({ sessions, onRefresh }: StreamOverviewShell
 
                 <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between">
                   <span className="text-[10px] text-slate-500 font-mono">
-                    Uptime: {Math.round(session.uptime_seconds)}s
+                    Uptime: {Math.round(session.uptime_seconds || 0)}s
                   </span>
                   <button
                     onClick={() => handleStop(session.stream_id)}

@@ -3,31 +3,39 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { Navbar } from "@/components/layout/Navbar";
 import { Sidebar } from "@/components/layout/Sidebar";
-import { BotStatusCard } from "@/components/dashboard/BotStatusCard";
-import { ComponentHealthGrid } from "@/components/dashboard/ComponentHealthGrid";
-import { StreamOverviewShell } from "@/components/dashboard/StreamOverviewShell";
-import { ModerationPanel } from "@/components/dashboard/ModerationPanel";
-import { CoHostPanel } from "@/components/dashboard/CoHostPanel";
-import { QuickControls } from "@/components/dashboard/QuickControls";
-import { fetchActiveStreams, fetchSystemHealth } from "@/lib/api";
-import { StreamSessionSummary, SystemHealthData } from "@/lib/types";
+import { GlobalSystemHealth } from "@/components/dashboard/GlobalSystemHealth";
+import { FourStreamOverview } from "@/components/dashboard/FourStreamOverview";
+import { StreamControlCenter } from "@/components/dashboard/StreamControlCenter";
+import { ModerationCenter } from "@/components/dashboard/ModerationCenter";
+import { CoHostCenter } from "@/components/dashboard/CoHostCenter";
+import { ModuleCenter } from "@/components/dashboard/ModuleCenter";
+import { AIDiagnostics } from "@/components/dashboard/AIDiagnostics";
+import { YouTubeDiagnostics } from "@/components/dashboard/YouTubeDiagnostics";
+import { ActivityTimeline } from "@/components/dashboard/ActivityTimeline";
+import { EmergencyControls } from "@/components/dashboard/EmergencyControls";
+import { fetchDashboardOverview, fetchSystemHealth } from "@/lib/api";
+import { ConnectionState, DashboardOverview, SystemHealthData } from "@/lib/types";
+import { dashboardWs } from "@/lib/ws";
+import { Shield, Bot, Layers, Cpu, Radio, Clock, AlertOctagon } from "lucide-react";
 
-export default function DashboardPage() {
-  const [activeTab, setActiveTab] = useState("dashboard");
+export default function CreatorControlCenterPage() {
+  const [activeTab, setActiveTab] = useState("overview");
+  const [selectedStreamId, setSelectedStreamId] = useState("stream_alpha");
   const [healthData, setHealthData] = useState<SystemHealthData | null>(null);
-  const [activeStreams, setActiveStreams] = useState<StreamSessionSummary[]>([]);
+  const [dashboardData, setDashboardData] = useState<DashboardOverview | null>(null);
+  const [connectionState, setConnectionState] = useState<ConnectionState>("DISCONNECTED");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     try {
       setIsLoading(true);
-      const [health, streams] = await Promise.all([
-        fetchSystemHealth(),
-        fetchActiveStreams(),
+      const [health, overview] = await Promise.all([
+        fetchSystemHealth().catch(() => null),
+        fetchDashboardOverview().catch(() => null),
       ]);
-      setHealthData(health);
-      setActiveStreams(streams);
+      if (health) setHealthData(health);
+      if (overview) setDashboardData(overview);
       setError(null);
     } catch (err: any) {
       setError(err.message || "Failed to fetch telemetry data");
@@ -38,9 +46,17 @@ export default function DashboardPage() {
 
   useEffect(() => {
     loadData();
-    // Auto-refresh telemetry every 5 seconds
     const interval = setInterval(loadData, 5000);
-    return () => clearInterval(interval);
+
+    // Subscribe to WebSocket Connection State
+    const unsubWs = dashboardWs.onStateChange((state) => {
+      setConnectionState(state);
+    });
+
+    return () => {
+      clearInterval(interval);
+      unsubWs();
+    };
   }, [loadData]);
 
   const isConnected = !!healthData && !error;
@@ -54,44 +70,62 @@ export default function DashboardPage() {
         uptimeSeconds={healthData?.uptime_seconds || 0}
       />
 
-      {/* Main Workspace Body */}
+      {/* Main Workspace */}
       <div className="flex-1 flex overflow-hidden">
         <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
 
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-6">
           {/* Header Banner */}
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-mono text-cyan-400 font-semibold tracking-wider uppercase">
-                Milestone 4 &bull; AI Co-Host Engine Live
-              </span>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono text-cyan-400 font-semibold tracking-wider uppercase">
+                  Milestone 6 &bull; Creator Control Center Live
+                </span>
+              </div>
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
+                Multi-Stream Creator Control Center
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-400 max-w-3xl">
+                Unified live command hub for Goddess AI 2.0. Real-time 4-stream monitoring,
+                3-tier AI moderation, interactive AI co-host, pluggable modules, and instant emergency controls.
+              </p>
             </div>
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
-              Creator Control Center
-            </h1>
-            <p className="text-xs sm:text-sm text-slate-400 max-w-3xl">
-              Multi-stream orchestration hub for Goddess AI 2.0. Independent 3-tier moderation,
-              interactive AI Co-Host with personality framing, bounded context memory, and safety policy gates.
-            </p>
           </div>
 
-          {/* Core Bot Status Overview */}
-          <BotStatusCard health={healthData} isLoading={isLoading} error={error} />
+          {/* 1. Global Subsystem Telemetry */}
+          <GlobalSystemHealth health={healthData} connectionState={connectionState} />
 
-          {/* Subsystem Health Grid (PostgreSQL, Redis, YouTube, Gemini, Moderation, CoHost) */}
-          <ComponentHealthGrid components={healthData?.components} />
+          {/* 2. 4-Stream Live Overview */}
+          <FourStreamOverview
+            streams={dashboardData?.streams || []}
+            selectedStreamId={selectedStreamId}
+            onSelectStream={setSelectedStreamId}
+          />
 
-          {/* Interactive AI Co-Host Panel */}
-          <CoHostPanel />
+          {/* 3. Selected Stream Control Center */}
+          <StreamControlCenter streamId={selectedStreamId} onRefresh={loadData} />
 
-          {/* 3-Tier AI Moderation Control Panel */}
-          <ModerationPanel />
+          {/* 4. Subsystem Centers Grid (Moderation & Co-Host) */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <ModerationCenter streamId={selectedStreamId} />
+            <CoHostCenter streamId={selectedStreamId} />
+          </div>
 
-          {/* 4 Stream Capacity Grid */}
-          <StreamOverviewShell sessions={activeStreams} onRefresh={loadData} />
+          {/* 5. Modular Extension Center */}
+          <ModuleCenter />
 
-          {/* Module Switchboard Controls */}
-          <QuickControls onRefresh={loadData} isRefreshing={isLoading} />
+          {/* 6. Hardware & Platform Diagnostics Grid (Gemini AI & YouTube) */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <AIDiagnostics data={dashboardData?.ai_diagnostics} />
+            <YouTubeDiagnostics data={dashboardData?.youtube_diagnostics} />
+          </div>
+
+          {/* 7. Real-Time Activity Timeline */}
+          <ActivityTimeline />
+
+          {/* 8. Emergency Controls */}
+          <EmergencyControls streamId={selectedStreamId} onActionComplete={loadData} />
         </main>
       </div>
     </div>
