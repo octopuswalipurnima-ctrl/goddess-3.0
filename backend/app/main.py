@@ -47,6 +47,9 @@ async def lifespan(app: FastAPI):
     
     # 2. Production Security Validation
     if settings.environment == "production":
+        if settings.auth_dev_bypass:
+            logger.critical("FATAL: AUTH_DEV_BYPASS cannot be enabled in production environment!")
+            raise RuntimeError("AUTH_DEV_BYPASS is strictly prohibited in production mode.")
         if "insecure" in settings.secret_key.lower() or len(settings.secret_key) < 32:
             logger.critical("FATAL: Weak or default SECRET_KEY detected in production environment!")
             raise RuntimeError("Insecure SECRET_KEY in production. Must be at least 32 cryptographically random chars.")

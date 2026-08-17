@@ -18,6 +18,9 @@ from app.core.logging import get_logger
 logger = get_logger("core.redis")
 
 
+MAX_FALLBACK_KEYS = 10000
+
+
 class InMemoryFallbackState:
     """Thread-safe and async-safe in-memory store for transient state with TTL eviction."""
 
@@ -31,6 +34,12 @@ class InMemoryFallbackState:
         for k in expired_keys:
             self._store.pop(k, None)
             self._expirations.pop(k, None)
+        # Prevent unbounded memory growth
+        if len(self._store) > MAX_FALLBACK_KEYS:
+            sorted_keys = sorted(self._expirations.items(), key=lambda x: x[1])
+            for k, _ in sorted_keys[: int(MAX_FALLBACK_KEYS * 0.2)]:
+                self._store.pop(k, None)
+                self._expirations.pop(k, None)
 
     async def set(self, key: str, value: Any, ex: Optional[float] = None) -> bool:
         async with self._lock:

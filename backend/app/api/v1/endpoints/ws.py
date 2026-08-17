@@ -128,7 +128,7 @@ async def websocket_endpoint(
     # 1. Authenticate connection
     user: Optional[UserSchema] = None
 
-    if settings.auth_dev_bypass:
+    if settings.auth_dev_bypass and settings.environment != "production":
         user = UserSchema(
             id=1,
             username="dev_owner",

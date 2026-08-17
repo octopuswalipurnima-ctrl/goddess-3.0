@@ -34,8 +34,8 @@ async def get_current_user(
     Validate incoming Bearer token and return authenticated UserSchema.
     Supports explicit dev bypass ONLY when explicitly enabled via settings.
     """
-    # 1. Check explicit local-dev bypass
-    if settings.auth_dev_bypass:
+    # 1. Check explicit local-dev bypass (strictly ignored in production)
+    if settings.auth_dev_bypass and settings.environment != "production":
         logger.debug("Operating in explicit local development authentication bypass mode.")
         return UserSchema(
             id=1,
