@@ -141,7 +141,27 @@ class CoHostManager:
             "intent": intent.model_dump(),
         })
 
-        # 4. Intent Pre-Policy Evaluation
+        # 4. Intent Pre-Policy & Safety Controller Evaluation
+        from app.core.safety_controller import safety_controller
+        can_co, co_reason = safety_controller.can_cohost(stream_id)
+        if not can_co:
+            self.metrics.responses_blocked += 1
+            await self.audit_logger.record_audit(
+                CoHostAuditRecord(
+                    stream_id=stream_id,
+                    message_id=cohost_msg.message_id,
+                    author_id=cohost_msg.author_id,
+                    author_name=cohost_msg.author_name,
+                    user_message=cohost_msg.message_text,
+                    intent=intent.intent_type,
+                    intent_confidence=intent.confidence,
+                    response_status=ResponseStatus.BLOCKED,
+                    dry_run=config.dry_run,
+                    block_reason=co_reason,
+                )
+            )
+            return None
+
         allowed, block_reason = self.policy.evaluate_intent(cohost_msg, intent, config)
         if not allowed:
             # If intent is ignored or Co-Host disabled, do not generate response
@@ -245,6 +265,31 @@ class CoHostManager:
             )
         else:
             # LIVE POSTING via existing YouTube infrastructure
+            can_chat, chat_reason = safety_controller.can_send_chat(stream_id)
+            if not can_chat:
+                self.metrics.responses_blocked += 1
+                response.status = ResponseStatus.BLOCKED
+                response.block_reason = chat_reason
+                await self.audit_logger.record_audit(
+                    CoHostAuditRecord(
+                        stream_id=stream_id,
+                        message_id=cohost_msg.message_id,
+                        author_id=cohost_msg.author_id,
+                        author_name=cohost_msg.author_name,
+                        user_message=cohost_msg.message_text,
+                        intent=intent.intent_type,
+                        intent_confidence=intent.confidence,
+                        response_text=response.response_text,
+                        response_status=ResponseStatus.BLOCKED,
+                        dry_run=False,
+                        response_length=len(response.response_text),
+                        latency_ms=response.latency_ms,
+                        model=response.model,
+                        block_reason=chat_reason,
+                    )
+                )
+                return response
+
             try:
                 session = self.yt_stream_mgr.get_session(stream_id)
                 if session and session.is_active:

@@ -17,6 +17,7 @@ import {
   Server,
   Wifi,
   WifiOff,
+  AlertOctagon,
 } from "lucide-react";
 
 interface Props {
@@ -63,6 +64,23 @@ export function GlobalSystemHealth({ health, connectionState }: Props) {
   };
 
   const comps = health?.components || ({} as any);
+  const safetyState = health?.global_safety_state || "NORMAL";
+
+  const getSafetyBadge = (state: string) => {
+    switch (state) {
+      case "EMERGENCY_STOP":
+        return "bg-rose-950/80 text-rose-200 border-rose-700 animate-pulse";
+      case "SAFE_MODE":
+        return "bg-indigo-950/80 text-indigo-300 border-indigo-700";
+      case "DEGRADED":
+        return "bg-amber-950/80 text-amber-300 border-amber-700";
+      case "SHUTTING_DOWN":
+        return "bg-slate-900 text-slate-400 border-slate-700";
+      case "NORMAL":
+      default:
+        return "bg-emerald-950/80 text-emerald-300 border-emerald-700";
+    }
+  };
 
   const subsystems = [
     { key: "youtube", label: "YouTube Engine", icon: <Radio className="w-4 h-4 text-red-400" /> },
@@ -77,11 +95,19 @@ export function GlobalSystemHealth({ health, connectionState }: Props) {
   return (
     <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-xl space-y-3">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Activity className="w-4 h-4 text-cyan-400" />
-          <h2 className="text-sm font-bold text-slate-200 uppercase tracking-wide">
-            Global Subsystem Telemetry
-          </h2>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Activity className="w-4 h-4 text-cyan-400" />
+            <h2 className="text-sm font-bold text-slate-200 uppercase tracking-wide">
+              Global Subsystem Telemetry
+            </h2>
+          </div>
+
+          {/* Safety State Indicator Badge */}
+          <div className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold border ${getSafetyBadge(safetyState)}`}>
+            <AlertOctagon className="w-3 h-3" />
+            <span>SAFETY: {safetyState}</span>
+          </div>
         </div>
 
         {/* WebSocket Real-time Status */}

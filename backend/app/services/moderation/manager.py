@@ -146,7 +146,19 @@ class ModerationManager:
         # Publish initial decision created event
         await event_bus.publish("MODERATION_DECISION_CREATED", decision.model_dump())
 
-        # 3. Action Policy Gate
+        # 3. Policy & Safety Controller Evaluation
+        from app.core.safety_controller import safety_controller
+        can_mod, safety_reason = safety_controller.can_moderate(stream_id)
+        if not can_mod:
+            self.metrics.actions_blocked += 1
+            await self.audit_logger.record_audit(
+                decision=decision,
+                action_taken=ModerationAction.LOG,
+                action_status=ActionStatus.BLOCKED,
+                block_reason=safety_reason,
+            )
+            return decision
+
         approved, effective_action, block_reason = self.policy.evaluate_action(decision, config)
 
         if not approved:

@@ -114,6 +114,21 @@ class HardenedConnectionManager:
 ws_manager = HardenedConnectionManager()
 
 
+async def _ws_eventbus_relay(event_name: str, payload: dict):
+    stream_id = payload.get("stream_id") if isinstance(payload, dict) else None
+    if stream_id in ("global", None):
+        stream_id = None
+    await ws_manager.broadcast_json({"type": event_name, "data": payload}, stream_id=stream_id)
+
+
+from app.core.events import event_bus
+
+event_bus.subscribe("SAFETY_STATE_CHANGED", lambda d: _ws_eventbus_relay("SAFETY_STATE_CHANGED", d))
+event_bus.subscribe("EMERGENCY_STOP", lambda d: _ws_eventbus_relay("EMERGENCY_STOP", d))
+event_bus.subscribe("STREAM_SUPERVISOR_EVENT", lambda d: _ws_eventbus_relay("STREAM_SUPERVISOR_EVENT", d))
+event_bus.subscribe("PROVIDER_HEALTH_CHANGED", lambda d: _ws_eventbus_relay("PROVIDER_HEALTH_CHANGED", d))
+
+
 @router.websocket("/ws")
 async def websocket_endpoint(
     websocket: WebSocket,

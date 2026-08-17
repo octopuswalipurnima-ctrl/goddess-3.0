@@ -1,35 +1,77 @@
 "use client";
 
 import React from "react";
-import { StreamSessionSummary } from "@/lib/types";
-import { Radio, Users, MessageSquare, Shield, Bot, Layers, ArrowRight } from "lucide-react";
+import { StreamSessionSummary, StreamSupervisorSummary } from "@/lib/types";
+import { Radio, Users, MessageSquare, Shield, Bot, Layers, ArrowRight, AlertOctagon, ShieldAlert } from "lucide-react";
 
 interface Props {
   streams: StreamSessionSummary[];
+  supervisorStreams?: StreamSupervisorSummary[];
   selectedStreamId: string;
   onSelectStream: (streamId: string) => void;
 }
 
 const DEFAULT_STREAMS = [
-  { id: "stream_alpha", name: "Stream Alpha (Primary)" },
-  { id: "stream_beta", name: "Stream Beta (Secondary)" },
-  { id: "stream_gamma", name: "Stream Gamma (Co-Stream)" },
-  { id: "stream_delta", name: "Stream Delta (Multicast)" },
+  { id: "STREAM_A", name: "Stream A (Primary)" },
+  { id: "STREAM_B", name: "Stream B (Secondary)" },
+  { id: "STREAM_C", name: "Stream C (Co-Stream)" },
+  { id: "STREAM_D", name: "Stream D (Multicast)" },
 ];
 
-export function FourStreamOverview({ streams, selectedStreamId, onSelectStream }: Props) {
+export function FourStreamOverview({
+  streams,
+  supervisorStreams = [],
+  selectedStreamId,
+  onSelectStream,
+}: Props) {
   // Map active streams or fallback to default slots
   const slots = DEFAULT_STREAMS.map((def) => {
-    const active = streams.find((s) => s.stream_id === def.id);
+    const sup = supervisorStreams.find((s) => s.stream_id.toUpperCase() === def.id.toUpperCase() || s.video_id === def.id);
+    const active = streams.find((s) => s.stream_id.toUpperCase() === def.id.toUpperCase());
+
+    const isLive = sup ? sup.state === "LIVE" : !!active?.is_live;
+    const isReconnecting = sup?.state === "RECONNECTING";
+    const isDegraded = sup?.state === "DEGRADED";
+    const isSafeMode = sup?.safe_mode || sup?.state === "SAFE_MODE";
+    const isEmergency = sup?.emergency_stop;
+    const isActive = sup ? sup.state !== "ENDED" && sup.state !== "FAILED" : !!active?.is_active;
+
+    let statusLabel = "OFFLINE";
+    let statusClass = "bg-slate-800 text-slate-400 border-slate-700";
+
+    if (isEmergency) {
+      statusLabel = "EMERGENCY STOP";
+      statusClass = "bg-rose-950 text-rose-300 border-rose-700 animate-pulse";
+    } else if (isSafeMode) {
+      statusLabel = "SAFE MODE";
+      statusClass = "bg-indigo-950 text-indigo-300 border-indigo-700";
+    } else if (isReconnecting) {
+      statusLabel = "RECONNECTING";
+      statusClass = "bg-amber-950 text-amber-300 border-amber-700 animate-pulse";
+    } else if (isDegraded) {
+      statusLabel = "DEGRADED";
+      statusClass = "bg-amber-950 text-amber-300 border-amber-800";
+    } else if (isLive) {
+      statusLabel = "LIVE";
+      statusClass = "bg-red-950 text-red-400 border-red-800 animate-pulse";
+    } else if (isActive) {
+      statusLabel = "ATTACHED";
+      statusClass = "bg-emerald-950 text-emerald-400 border-emerald-800";
+    }
+
     return {
       id: def.id,
-      name: active?.title || def.name,
-      isActive: !!active?.is_active,
-      isLive: !!active?.is_live,
-      viewers: active?.viewer_count || 0,
-      messagesRead: active?.messages_read || 0,
-      messagesPosted: active?.messages_posted || 0,
-      errorCount: active?.error_count || 0,
+      name: sup?.title || active?.title || def.name,
+      isActive,
+      isLive,
+      isEmergency,
+      isSafeMode,
+      statusLabel,
+      statusClass,
+      viewers: sup?.concurrent_viewers || active?.viewer_count || 0,
+      messagesRead: sup?.messages_received || active?.messages_read || 0,
+      messagesPosted: sup?.messages_sent || active?.messages_posted || 0,
+      reconnects: sup?.reconnect_attempts || 0,
     };
   });
 
@@ -49,7 +91,7 @@ export function FourStreamOverview({ streams, selectedStreamId, onSelectStream }
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {slots.map((slot) => {
-          const isSelected = selectedStreamId === slot.id;
+          const isSelected = selectedStreamId.toUpperCase() === slot.id.toUpperCase();
           return (
             <div
               key={slot.id}
@@ -67,20 +109,9 @@ export function FourStreamOverview({ streams, selectedStreamId, onSelectStream }
                   <span className="text-[10px] font-mono text-slate-400 uppercase">{slot.id}</span>
                 </div>
                 <span
-                  className={`inline-flex items-center gap-1 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
-                    slot.isLive
-                      ? "bg-red-950 text-red-400 border-red-800 animate-pulse"
-                      : slot.isActive
-                      ? "bg-emerald-950 text-emerald-400 border-emerald-800"
-                      : "bg-slate-800 text-slate-400 border-slate-700"
-                  }`}
+                  className={`inline-flex items-center gap-1 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${slot.statusClass}`}
                 >
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full ${
-                      slot.isLive ? "bg-red-400" : slot.isActive ? "bg-emerald-400" : "bg-slate-500"
-                    }`}
-                  />
-                  <span>{slot.isLive ? "LIVE" : slot.isActive ? "ATTACHED" : "OFFLINE"}</span>
+                  <span>{slot.statusLabel}</span>
                 </span>
               </div>
 
@@ -91,11 +122,11 @@ export function FourStreamOverview({ streams, selectedStreamId, onSelectStream }
                   <span className="text-xs font-bold text-white">{slot.viewers}</span>
                 </div>
                 <div>
-                  <span className="text-[9px] text-slate-500 block">MSGS READ</span>
+                  <span className="text-[9px] text-slate-500 block">IN</span>
                   <span className="text-xs font-bold text-cyan-400">{slot.messagesRead}</span>
                 </div>
                 <div>
-                  <span className="text-[9px] text-slate-500 block">POSTED</span>
+                  <span className="text-[9px] text-slate-500 block">OUT</span>
                   <span className="text-xs font-bold text-purple-400">{slot.messagesPosted}</span>
                 </div>
               </div>

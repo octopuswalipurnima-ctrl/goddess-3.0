@@ -58,6 +58,11 @@ class CommandsModule(BaseModule):
             return
 
         stream_id = msg.stream_id
+        from app.core.safety_controller import safety_controller
+        can_cmd, _ = safety_controller.can_execute_command(stream_id)
+        if not can_cmd:
+            return
+
         config = self.get_stream_config(stream_id)
         if not config.enabled:
             return  # Disabled on this stream

@@ -98,6 +98,10 @@ class RedisStateManager:
         self._fallback = InMemoryFallbackState()
         self._is_connected = False
 
+    @property
+    def is_connected(self) -> bool:
+        return self._is_connected
+
     async def initialize(self) -> None:
         """Initialize Redis connection if REDIS_URL is configured."""
         if not self.redis_url:

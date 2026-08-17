@@ -8,17 +8,21 @@ Consumes existing services without duplicating business logic or exposing creden
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.auth.dependencies import require_permission
 from app.core.config import settings
+from app.core.production_health import production_health_service
 from app.core.redis import redis_state
+from app.core.safety_controller import safety_controller
 from app.db.session import ping_database
 from app.modules import module_manager
 from app.services.cohost import cohost_manager
 from app.services.gemini import gemini_credentials, gemini_manager
 from app.services.moderation import moderation_manager
+from app.services.providers.health import provider_health_service
 from app.services.youtube import stream_manager, youtube_credentials
+from app.services.youtube.stream_supervisor import stream_supervisor
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard Overview"])
 
@@ -27,13 +31,20 @@ class DashboardOverviewResponse(BaseModel):
     timestamp: str
     version: str
     uptime_seconds: float
+    system_status: str = Field(default="HEALTHY", description="Overall system health status")
+    production_mode: bool = Field(default=True, description="Whether production safety gates are active")
+    global_safety_state: str = Field(default="NORMAL", description="Global safety controller state")
+    active_stream_count: int = 0
+    max_stream_count: int = 4
     streams: List[Dict[str, Any]]
+    supervisor_streams: List[Dict[str, Any]] = Field(default_factory=list)
     moderation_metrics: Dict[str, Any]
     cohost_metrics: Dict[str, Any]
     modules_summary: Dict[str, Any]
     ai_diagnostics: Dict[str, Any]
     youtube_diagnostics: Dict[str, Any]
     persistence_health: Optional[Dict[str, Any]] = None
+    safety_summary: Dict[str, Any] = Field(default_factory=dict)
 
 
 @router.get(
@@ -48,6 +59,7 @@ async def get_dashboard_overview():
     Co-Host activity, modular extensions, and credential diagnostics in a single payload.
     """
     now_utc = datetime.now(timezone.utc).isoformat()
+    prod_health = production_health_service.get_system_production_health()
 
     # 1. Active Streams (up to 4 streams)
     active_sessions = stream_manager.list_sessions()
@@ -66,7 +78,11 @@ async def get_dashboard_overview():
         for s in active_sessions
     ]
 
-    # 2. Moderation Metrics
+    # 2. Supervised Streams
+    sup_summaries = stream_supervisor.list_supervisor_sessions()
+    supervisor_data = [s.model_dump() for s in sup_summaries]
+
+    # 3. Moderation Metrics
     mod_metrics = {
         "messages_analyzed": moderation_manager.metrics.messages_analyzed,
         "rule_matches": moderation_manager.metrics.rule_matches,
@@ -77,7 +93,7 @@ async def get_dashboard_overview():
         "dry_run_actions": moderation_manager.metrics.actions_dry_run,
     }
 
-    # 3. Co-Host Metrics
+    # 4. Co-Host Metrics
     cohost_metrics = {
         "messages_analyzed": cohost_manager.metrics.messages_analyzed,
         "intents_detected": cohost_manager.metrics.intents_detected,
@@ -89,7 +105,7 @@ async def get_dashboard_overview():
         "responses_failed": cohost_manager.metrics.responses_failed,
     }
 
-    # 4. Modules Summary
+    # 5. Modules Summary
     all_mods = module_manager.registry.list_all()
     modules_summary = {
         "registered_count": len(all_mods),
@@ -110,8 +126,7 @@ async def get_dashboard_overview():
         ],
     }
 
-    # 5. AI Diagnostics (Safe summary, 0 raw secrets)
-    from app.services.providers.health import provider_health_service
+    # 6. AI Diagnostics (Safe summary, 0 raw secrets)
     gemini_health = provider_health_service.get_gemini_provider_health()
     gemini_diag = {
         "configured_keys": gemini_health.credential_count,
@@ -130,7 +145,7 @@ async def get_dashboard_overview():
         "status": gemini_health.status,
     }
 
-    # 6. YouTube Diagnostics (Safe summary, 0 raw secrets)
+    # 7. YouTube Diagnostics (Safe summary, 0 raw secrets)
     yt_health = provider_health_service.get_youtube_provider_health()
     yt_diag = {
         "configured_keys": yt_health.credential_count,
@@ -146,7 +161,7 @@ async def get_dashboard_overview():
         "status": yt_health.status,
     }
 
-    # 7. Persistence Health (PostgreSQL & Redis safe telemetry)
+    # 8. Persistence Health (PostgreSQL & Redis safe telemetry)
     db_health = await ping_database()
     redis_health = await redis_state.ping()
     persistence_diag = {
@@ -173,11 +188,18 @@ async def get_dashboard_overview():
         uptime_seconds=round(datetime.now(timezone.utc).timestamp() - settings.startup_time, 2)
         if hasattr(settings, "startup_time")
         else 0.0,
+        system_status=prod_health.system_status,
+        production_mode=True,
+        global_safety_state=safety_controller.global_state.value,
+        active_stream_count=len(active_sessions),
+        max_stream_count=4,
         streams=streams_data,
+        supervisor_streams=supervisor_data,
         moderation_metrics=mod_metrics,
         cohost_metrics=cohost_metrics,
         modules_summary=modules_summary,
         ai_diagnostics=gemini_diag,
         youtube_diagnostics=yt_diag,
         persistence_health=persistence_diag,
+        safety_summary=safety_controller.get_safety_summary(),
     )

@@ -4,6 +4,8 @@
 
 export type ConnectionState = "CONNECTED" | "RECONNECTING" | "DISCONNECTED";
 export type HealthStatus = "HEALTHY" | "DEGRADED" | "UNAVAILABLE" | "ERROR" | "NOT_CONFIGURED" | "UNKNOWN";
+export type SupervisorState = "DISCOVERING" | "CONNECTING" | "LIVE" | "RECONNECTING" | "DEGRADED" | "SAFE_MODE" | "STOPPING" | "ENDED" | "FAILED";
+export type SafetyState = "NORMAL" | "DEGRADED" | "SAFE_MODE" | "EMERGENCY_STOP" | "SHUTTING_DOWN";
 
 export interface ComponentStatus {
   status: HealthStatus;
@@ -17,6 +19,8 @@ export interface SystemHealthData {
   environment: string;
   uptime_seconds: number;
   timestamp: string;
+  system_status?: string;
+  global_safety_state?: string;
   components: {
     database: ComponentStatus;
     redis: ComponentStatus;
@@ -44,6 +48,26 @@ export interface StreamSessionSummary {
   start_time: string | null;
   uptime_seconds?: number;
   error_count: number;
+}
+
+export interface StreamSupervisorSummary {
+  stream_id: string;
+  video_id: string;
+  channel_id?: string | null;
+  title?: string | null;
+  state: SupervisorState;
+  live_chat_id?: string | null;
+  concurrent_viewers: number;
+  messages_received: number;
+  messages_sent: number;
+  reconnect_attempts: number;
+  uptime_seconds: number;
+  attached_at?: string | null;
+  last_message_at?: string | null;
+  last_reconnect_at?: string | null;
+  last_error?: string | null;
+  safe_mode: boolean;
+  emergency_stop: boolean;
 }
 
 export interface ModerationMetrics {
@@ -168,13 +192,20 @@ export interface DashboardOverview {
   timestamp: string;
   version: string;
   uptime_seconds: number;
+  system_status?: string;
+  production_mode?: boolean;
+  global_safety_state?: string;
+  active_stream_count?: number;
+  max_stream_count?: number;
   streams: StreamSessionSummary[];
+  supervisor_streams?: StreamSupervisorSummary[];
   moderation_metrics: ModerationMetrics;
   cohost_metrics: CoHostMetrics;
   modules_summary: ModulesSummary;
   ai_diagnostics: AIDiagnosticsData;
   youtube_diagnostics: YouTubeDiagnosticsData;
   persistence_health?: PersistenceHealthData;
+  safety_summary?: Record<string, any>;
 }
 
 export interface ActivityEvent {
