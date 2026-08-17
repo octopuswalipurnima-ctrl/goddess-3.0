@@ -199,6 +199,25 @@ async def get_health():
         },
     )
 
+    # AI Co-Host Engine Status
+    from app.services.cohost import cohost_manager
+    cohost_metrics = cohost_manager.metrics
+
+    components["cohost"] = ComponentStatus(
+        status="HEALTHY",
+        details="AI Co-Host Engine active with rule-first intent detection, context memory, and safety policy",
+        metadata={
+            "messages_analyzed": cohost_metrics.messages_analyzed,
+            "intents_detected": cohost_metrics.intents_detected,
+            "responses_requested": cohost_metrics.responses_requested,
+            "responses_generated": cohost_metrics.responses_generated,
+            "responses_sent": cohost_metrics.responses_sent,
+            "responses_dry_run": cohost_metrics.responses_dry_run,
+            "responses_blocked": cohost_metrics.responses_blocked,
+            "responses_failed": cohost_metrics.responses_failed,
+        },
+    )
+
     return HealthResponse(
         application="HEALTHY",
         version=settings.app_version,

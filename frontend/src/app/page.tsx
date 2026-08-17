@@ -7,6 +7,7 @@ import { BotStatusCard } from "@/components/dashboard/BotStatusCard";
 import { ComponentHealthGrid } from "@/components/dashboard/ComponentHealthGrid";
 import { StreamOverviewShell } from "@/components/dashboard/StreamOverviewShell";
 import { ModerationPanel } from "@/components/dashboard/ModerationPanel";
+import { CoHostPanel } from "@/components/dashboard/CoHostPanel";
 import { QuickControls } from "@/components/dashboard/QuickControls";
 import { fetchActiveStreams, fetchSystemHealth } from "@/lib/api";
 import { StreamSessionSummary, SystemHealthData } from "@/lib/types";
@@ -62,23 +63,26 @@ export default function DashboardPage() {
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <span className="text-xs font-mono text-cyan-400 font-semibold tracking-wider uppercase">
-                Milestone 3 &bull; AI Moderation Engine Live
+                Milestone 4 &bull; AI Co-Host Engine Live
               </span>
             </div>
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
               Creator Control Center
             </h1>
             <p className="text-xs sm:text-sm text-slate-400 max-w-3xl">
-              Real-time multi-stream orchestration hub for Goddess AI 2.0. Layered 3-tier moderation
-              with deterministic fast rules, contextual Gemini AI analysis, and safety policy gates.
+              Multi-stream orchestration hub for Goddess AI 2.0. Independent 3-tier moderation,
+              interactive AI Co-Host with personality framing, bounded context memory, and safety policy gates.
             </p>
           </div>
 
           {/* Core Bot Status Overview */}
           <BotStatusCard health={healthData} isLoading={isLoading} error={error} />
 
-          {/* Subsystem Health Grid (PostgreSQL, Redis, YouTube, Gemini, Moderation) */}
+          {/* Subsystem Health Grid (PostgreSQL, Redis, YouTube, Gemini, Moderation, CoHost) */}
           <ComponentHealthGrid components={healthData?.components} />
+
+          {/* Interactive AI Co-Host Panel */}
+          <CoHostPanel />
 
           {/* 3-Tier AI Moderation Control Panel */}
           <ModerationPanel />

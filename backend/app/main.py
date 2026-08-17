@@ -26,9 +26,12 @@ async def lifespan(app: FastAPI):
     logger.info(f"YouTube keys registered: {len(settings.youtube_api_keys)}")
     logger.info(f"Gemini keys registered: {len(settings.gemini_api_keys)}")
 
-    # Start AI & Moderation subsystems
+    # Start AI, Moderation, and Co-Host subsystems
     from app.services.moderation import moderation_manager
     moderation_manager.start()
+
+    from app.services.cohost import cohost_manager
+    cohost_manager.start()
 
     yield
 
