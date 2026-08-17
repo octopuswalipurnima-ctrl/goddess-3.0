@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     gemini_fallback_model: str = Field(default="gemini-2.5-flash-lite", description="Fallback Gemini Model Name")
     gemini_temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="AI Temperature")
     gemini_max_output_tokens: int = Field(default=512, gt=0, description="Max AI Output Tokens")
+    gemini_request_timeout: float = Field(default=10.0, gt=0.0, description="Gemini API timeout in seconds")
+    gemini_max_concurrency: int = Field(default=2, gt=0, description="Max concurrent Gemini API requests")
+    gemini_queue_max_size: int = Field(default=100, gt=0, description="Max pending requests in AI queue")
+    gemini_rate_limit_capacity: int = Field(default=5, gt=0, description="Rate limiter token bucket capacity")
+    gemini_rate_limit_refill_rate: float = Field(default=0.5, gt=0.0, description="Rate limiter refill tokens per second")
+    gemini_max_retries: int = Field(default=3, ge=0, description="Max retry attempts for retryable errors")
 
     # Security
     secret_key: str = Field(

@@ -5,6 +5,7 @@ Provides simple, honest reporting of system and component status:
 - HEALTHY: Component is configured and actively functioning.
 - NOT_CONFIGURED: Configuration key/URL is not provided (normal during early milestones).
 - UNAVAILABLE: Configured resource cannot be reached.
+- DEGRADED: Configured resource is partially available or experiencing errors.
 - ERROR: An exception occurred while checking the resource.
 """
 
@@ -15,6 +16,9 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.services.gemini.credentials import gemini_credentials
+from app.services.gemini.manager import gemini_manager
+from app.services.gemini.router import gemini_router
 from app.services.youtube.credentials import youtube_credentials
 from app.services.youtube.stream_manager import stream_manager
 
@@ -24,7 +28,7 @@ START_TIME = time.time()
 
 
 class ComponentStatus(BaseModel):
-    status: str  # "HEALTHY" | "NOT_CONFIGURED" | "UNAVAILABLE" | "ERROR"
+    status: str  # "HEALTHY" | "NOT_CONFIGURED" | "UNAVAILABLE" | "DEGRADED" | "ERROR"
     details: str
     metadata: Optional[Dict[str, Any]] = None
 
@@ -113,17 +117,69 @@ async def get_health():
             },
         )
 
-    # Gemini AI Status
-    gemini_keys_count = len(settings.gemini_api_keys)
-    if gemini_keys_count == 0:
+    # Gemini AI Engine Status
+    gemini_configured = gemini_credentials.configured_count
+    gemini_available = gemini_credentials.available_count
+    active_ai_reqs = gemini_manager.queue.active_count
+    queued_ai_reqs = gemini_manager.queue.queued_count
+
+    if gemini_configured == 0:
         components["gemini"] = ComponentStatus(
             status="NOT_CONFIGURED",
-            details="No Gemini API keys configured in environment (target for Milestone 3)",
+            details="No Gemini API keys configured in environment",
+            metadata={
+                "configured_credentials": 0,
+                "available_credentials": 0,
+                "active_requests": active_ai_reqs,
+                "queued_requests": queued_ai_reqs,
+                "primary_model": gemini_router.primary_model,
+                "fallback_model": gemini_router.fallback_model,
+                "total_requests": gemini_manager.metrics.total_requests,
+                "successful_requests": gemini_manager.metrics.successful_requests,
+                "failed_requests": gemini_manager.metrics.failed_requests,
+            },
+        )
+    elif gemini_available == 0:
+        components["gemini"] = ComponentStatus(
+            status="UNAVAILABLE",
+            details=f"All {gemini_configured} configured Gemini credential(s) are in cooldown or failed",
+            metadata={
+                "configured_credentials": gemini_configured,
+                "available_credentials": 0,
+                "active_requests": active_ai_reqs,
+                "queued_requests": queued_ai_reqs,
+                "primary_model": gemini_router.primary_model,
+                "fallback_model": gemini_router.fallback_model,
+                "credentials": [c.model_dump() for c in gemini_credentials.get_health_summary()],
+            },
+        )
+    elif gemini_available < gemini_configured:
+        components["gemini"] = ComponentStatus(
+            status="DEGRADED",
+            details=f"{gemini_available}/{gemini_configured} Gemini key(s) available (some in cooldown)",
+            metadata={
+                "configured_credentials": gemini_configured,
+                "available_credentials": gemini_available,
+                "active_requests": active_ai_reqs,
+                "queued_requests": queued_ai_reqs,
+                "primary_model": gemini_router.primary_model,
+                "fallback_model": gemini_router.fallback_model,
+                "credentials": [c.model_dump() for c in gemini_credentials.get_health_summary()],
+            },
         )
     else:
         components["gemini"] = ComponentStatus(
             status="HEALTHY",
-            details=f"{gemini_keys_count} Gemini API key(s) registered",
+            details=f"{gemini_available}/{gemini_configured} Gemini key(s) active (Primary: {gemini_router.primary_model})",
+            metadata={
+                "configured_credentials": gemini_configured,
+                "available_credentials": gemini_available,
+                "active_requests": active_ai_reqs,
+                "queued_requests": queued_ai_reqs,
+                "primary_model": gemini_router.primary_model,
+                "fallback_model": gemini_router.fallback_model,
+                "credentials": [c.model_dump() for c in gemini_credentials.get_health_summary()],
+            },
         )
 
     return HealthResponse(
