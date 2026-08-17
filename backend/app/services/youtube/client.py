@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import httpx
 
 from app.core.logging import get_logger
+from app.core.provider_errors import classify_provider_error, sanitize_error_message
 from app.services.youtube.credentials import YouTubeCredentialManager, youtube_credentials
 from app.services.youtube.exceptions import (
     ChatMessageValidationError,
@@ -81,19 +82,22 @@ class YouTubeAPIClient:
                 except Exception:
                     pass
 
-                error_message = error_json.get("message", response.text)
+                raw_msg = error_json.get("message", response.text)
+                sanitized_msg = sanitize_error_message(raw_msg)
                 errors_list = error_json.get("errors", [])
                 reason = errors_list[0].get("reason", "") if errors_list else ""
 
-                if response.status_code == 403 and reason in ["quotaExceeded", "dailyLimitExceeded"]:
-                    await self.credentials.mark_failed(key_id, f"Quota Exceeded ({reason})", is_quota=True)
-                    last_exception = QuotaExceededError(403, error_message, reason)
+                code, _, is_quota = classify_provider_error(sanitized_msg, response.status_code)
+
+                if response.status_code == 403 and (is_quota or reason in ["quotaExceeded", "dailyLimitExceeded"]):
+                    await self.credentials.mark_failed(key_id, sanitized_msg, is_quota=True, status_code=403)
+                    last_exception = QuotaExceededError(403, sanitized_msg, reason or "quotaExceeded")
                     logger.warning(f"Key '{key_id}' quota exceeded. Rotating to next credential...")
                     continue
 
                 if response.status_code == 429 or reason == "rateLimitExceeded":
-                    await self.credentials.mark_failed(key_id, f"Rate Limit Exceeded ({reason})", is_quota=False)
-                    last_exception = RateLimitError(429, error_message, reason)
+                    await self.credentials.mark_failed(key_id, sanitized_msg, is_quota=False, status_code=429)
+                    last_exception = RateLimitError(429, sanitized_msg, reason or "rateLimitExceeded")
                     logger.warning(f"Key '{key_id}' rate limited. Rotating to next credential...")
                     continue
 
@@ -102,13 +106,14 @@ class YouTubeAPIClient:
                     raise StreamNotFoundError(f"Resource not found on YouTube: {endpoint}")
 
                 # General API Error
-                await self.credentials.mark_failed(key_id, f"HTTP {response.status_code}: {error_message}")
-                raise YouTubeAPIError(response.status_code, error_message, reason)
+                await self.credentials.mark_failed(key_id, sanitized_msg, status_code=response.status_code)
+                raise YouTubeAPIError(response.status_code, sanitized_msg, reason)
 
             except httpx.RequestError as exc:
-                await self.credentials.mark_failed(key_id, f"Network request error: {str(exc)}")
+                sanitized_exc = sanitize_error_message(str(exc))
+                await self.credentials.mark_failed(key_id, f"Network request error: {sanitized_exc}", status_code=None)
                 last_exception = exc
-                logger.warning(f"Network error with key '{key_id}': {exc}. Retrying...")
+                logger.warning(f"Network error with key '{key_id}': {sanitized_exc}. Retrying...")
 
         if last_exception:
             raise last_exception
