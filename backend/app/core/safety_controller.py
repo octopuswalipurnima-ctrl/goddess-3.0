@@ -160,6 +160,20 @@ class ProductionSafetyController:
 
         return True, "Allowed"
 
+    def can_mutate_stream(self, stream_id: str) -> Tuple[bool, str]:
+        """
+        Evaluate whether stream lifecycle mutation (attach, detach, reconnect) is permitted.
+        """
+        if self.is_shutting_down:
+            return False, "System is shutting down"
+        if self.is_stream_emergency(stream_id):
+            return False, "Emergency Stop is ACTIVE on this stream"
+        return True, "Allowed"
+
+    async def enter_shutting_down(self) -> None:
+        """Enter system-wide shutting down state."""
+        self._global_state = SafetyState.SHUTTING_DOWN
+
     # ---------------------------------------------------------
     # State Mutation & Emergency Control Methods
     # ---------------------------------------------------------
@@ -315,7 +329,12 @@ class ProductionSafetyController:
             "emergency_triggered_by": self._emergency_triggered_by.copy(),
             "emergency_stop_count": self._emergency_stop_count,
             "blocked_action_count": self._blocked_action_count,
+            "safe_mode_reasons": dict(self._safe_mode_reasons),
         }
+
+    def get_diagnostics(self) -> Dict[str, Any]:
+        """Alias for get_safety_summary."""
+        return self.get_safety_summary()
 
 
 # Global singleton instance

@@ -17,6 +17,17 @@ def default_test_settings(monkeypatch):
     monkeypatch.setattr("app.core.config.settings.auth_dev_bypass", True)
 
 
+@pytest.fixture(autouse=True)
+async def clean_safety_state():
+    """
+    Ensure safety_controller starts and ends in a clean NORMAL state for every test.
+    """
+    from app.core.safety_controller import safety_controller
+    await safety_controller.reset_to_clean_state()
+    yield
+    await safety_controller.reset_to_clean_state()
+
+
 @pytest.fixture
 async def async_client():
     """Async HTTP test client for testing FastAPI endpoints."""

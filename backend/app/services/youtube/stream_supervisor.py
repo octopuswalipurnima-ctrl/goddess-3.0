@@ -254,6 +254,10 @@ class StreamSupervisor:
         return sum(1 for s in self._supervisors.values() if s.is_active)
 
     @property
+    def active_stream_ids(self) -> List[str]:
+        return list(self._supervisors.keys())
+
+    @property
     def total_stream_count(self) -> int:
         return len(self._supervisors)
 
@@ -316,6 +320,11 @@ class StreamSupervisor:
     def get_supervisor_session(self, stream_id: str) -> Optional[StreamSupervisorSession]:
         """Fetch supervisor session for stream_id."""
         return self._supervisors.get(stream_id)
+
+    def get_stream_summary(self, stream_id: str) -> Optional[StreamSupervisorSummary]:
+        """Fetch safe telemetry summary for stream_id."""
+        sess = self._supervisors.get(stream_id)
+        return sess.to_summary() if sess else None
 
     def list_supervisor_sessions(self) -> List[StreamSupervisorSummary]:
         """List safe telemetry summaries for all supervised streams."""

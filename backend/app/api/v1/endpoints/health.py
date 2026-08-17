@@ -316,3 +316,15 @@ async def get_health():
         timestamp=now_utc,
         components=components,
     )
+
+
+@router.get("/health/detailed", summary="Detailed Operations Health Diagnostics")
+async def get_detailed_operations_health():
+    """
+    Comprehensive health diagnostics across Database, Redis, EventBus,
+    YouTube, Gemini, WebSocket, StreamSupervisor, and ProductionSafetyController.
+    Guarantees zero secret exposure.
+    """
+    from app.services.operations import operations_manager
+    return operations_manager.get_detailed_health()
+

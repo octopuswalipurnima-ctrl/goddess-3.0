@@ -3,16 +3,17 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { Navbar } from "@/components/layout/Navbar";
 import { Sidebar } from "@/components/layout/Sidebar";
-import { GlobalSystemHealth } from "@/components/dashboard/GlobalSystemHealth";
+import { OperationsOverview } from "@/components/dashboard/OperationsOverview";
 import { FourStreamOverview } from "@/components/dashboard/FourStreamOverview";
 import { StreamControlCenter } from "@/components/dashboard/StreamControlCenter";
 import { ModerationCenter } from "@/components/dashboard/ModerationCenter";
 import { CoHostCenter } from "@/components/dashboard/CoHostCenter";
 import { ModuleCenter } from "@/components/dashboard/ModuleCenter";
-import { AIDiagnostics } from "@/components/dashboard/AIDiagnostics";
-import { YouTubeDiagnostics } from "@/components/dashboard/YouTubeDiagnostics";
+import { AIOperationsPanel } from "@/components/dashboard/AIOperationsPanel";
+import { ProviderHealthPanel } from "@/components/dashboard/ProviderHealthPanel";
+import { AuditLogPanel } from "@/components/dashboard/AuditLogPanel";
+import { SafetyControls } from "@/components/dashboard/SafetyControls";
 import { ActivityTimeline } from "@/components/dashboard/ActivityTimeline";
-import { EmergencyControls } from "@/components/dashboard/EmergencyControls";
 import { fetchDashboardOverview, fetchSystemHealth } from "@/lib/api";
 import { ConnectionState, DashboardOverview, SystemHealthData } from "@/lib/types";
 import { dashboardWs } from "@/lib/ws";
@@ -80,7 +81,7 @@ export default function CreatorControlCenterPage() {
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-mono text-cyan-400 font-semibold tracking-wider uppercase">
-                  Milestone 6 &bull; Creator Control Center Live
+                  Milestone 14 &bull; Production Creator Control Center
                 </span>
               </div>
               <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
@@ -88,44 +89,47 @@ export default function CreatorControlCenterPage() {
               </h1>
               <p className="text-xs sm:text-sm text-slate-400 max-w-3xl">
                 Unified live command hub for Goddess AI 2.0. Real-time 4-stream monitoring,
-                3-tier AI moderation, interactive AI co-host, pluggable modules, and instant emergency controls.
+                3-tier AI moderation, interactive AI co-host, operational audit trail, and instant safety controls.
               </p>
             </div>
           </div>
 
-          {/* 1. Global Subsystem Telemetry */}
-          <GlobalSystemHealth health={healthData} connectionState={connectionState} />
+          {/* 1. Global Operations Overview */}
+          <OperationsOverview />
 
-          {/* 2. 4-Stream Live Overview */}
+          {/* 2. Safety Controls */}
+          <SafetyControls />
+
+          {/* 3. 4-Stream Live Overview */}
           <FourStreamOverview
             streams={dashboardData?.streams || []}
             selectedStreamId={selectedStreamId}
             onSelectStream={setSelectedStreamId}
           />
 
-          {/* 3. Selected Stream Control Center */}
+          {/* 4. Selected Stream Control Center */}
           <StreamControlCenter streamId={selectedStreamId} onRefresh={loadData} />
 
-          {/* 4. Subsystem Centers Grid (Moderation & Co-Host) */}
+          {/* 5. Subsystem Centers Grid (Moderation & Co-Host) */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <ModerationCenter streamId={selectedStreamId} />
             <CoHostCenter streamId={selectedStreamId} />
           </div>
 
-          {/* 5. Modular Extension Center */}
+          {/* 6. Modular Extension Center */}
           <ModuleCenter />
 
-          {/* 6. Hardware & Platform Diagnostics Grid (Gemini AI & YouTube) */}
+          {/* 7. AI & Provider Operations Diagnostics Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <AIDiagnostics data={dashboardData?.ai_diagnostics} />
-            <YouTubeDiagnostics data={dashboardData?.youtube_diagnostics} />
+            <AIOperationsPanel />
+            <ProviderHealthPanel />
           </div>
 
-          {/* 7. Real-Time Activity Timeline */}
-          <ActivityTimeline />
-
-          {/* 8. Emergency Controls */}
-          <EmergencyControls streamId={selectedStreamId} onActionComplete={loadData} />
+          {/* 8. Operational Audit Log & Activity Timeline */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <AuditLogPanel />
+            <ActivityTimeline />
+          </div>
         </main>
       </div>
     </div>

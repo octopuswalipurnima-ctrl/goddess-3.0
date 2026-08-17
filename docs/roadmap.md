@@ -166,3 +166,16 @@ The project is built in structured, test-driven milestones.
 - Extended REST endpoints and Creator Control Center UI updates in `CoHostPanel.tsx`
 - 370 passing backend tests (339 baseline + 31 new Milestone 13 tests) and Next.js 15 production build pass
 
+---
+
+### Milestone 14: Production Creator Control Center, Operational Observability & Real-Service Validation ✅
+- Unified `OperationsManager` orchestrating `ProductionSafetyController`, `StreamSupervisor`, `AIDecisionEngine`, and domain services
+- Bounded `OperationalAuditService` with secret scrubbing and in-memory sliding buffer
+- `OperationsTelemetryService` with percentile tracker (p50, p95, p99, average latency)
+- Hardened RBAC with fine-grained operational permissions (`stream.attach`, `stream.detach`, `stream.reconnect`, `stream.safe_mode`, `moderation.control`, `cohost.control`, `ai.read`, `system.read`, `system.control`, `audit.read`)
+- REST APIs (`/api/v1/operations/*`) and detailed health probe (`/api/v1/health/detailed`)
+- Hardened WebSocket operational event broadcasting and stream-scoped subscriptions
+- Production Next.js 15 Creator Control Center UI components (`OperationsOverview`, `StreamOperationsCard`, `AIOperationsPanel`, `ProviderHealthPanel`, `AuditLogPanel`, `SafetyControls`)
+- 396 passing backend tests (370 baseline + 26 new Milestone 14 tests, 4 skipped opt-in), Next.js production build pass, 4-stream load simulation pass, zero secret leakage verified
+
+

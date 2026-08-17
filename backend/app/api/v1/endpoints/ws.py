@@ -125,8 +125,13 @@ from app.core.events import event_bus
 
 event_bus.subscribe("SAFETY_STATE_CHANGED", lambda d: _ws_eventbus_relay("SAFETY_STATE_CHANGED", d))
 event_bus.subscribe("EMERGENCY_STOP", lambda d: _ws_eventbus_relay("EMERGENCY_STOP", d))
+event_bus.subscribe("SAFE_MODE_CHANGED", lambda d: _ws_eventbus_relay("SAFE_MODE_CHANGED", d))
 event_bus.subscribe("STREAM_SUPERVISOR_EVENT", lambda d: _ws_eventbus_relay("STREAM_SUPERVISOR_EVENT", d))
 event_bus.subscribe("PROVIDER_HEALTH_CHANGED", lambda d: _ws_eventbus_relay("PROVIDER_HEALTH_CHANGED", d))
+event_bus.subscribe("AI_HEALTH_CHANGED", lambda d: _ws_eventbus_relay("AI_HEALTH_CHANGED", d))
+event_bus.subscribe("AUDIT_EVENT", lambda d: _ws_eventbus_relay("AUDIT_EVENT", d))
+event_bus.subscribe("OPERATIONAL_EVENT", lambda d: _ws_eventbus_relay("OPERATIONAL_EVENT", d))
+event_bus.subscribe("operations", lambda d: _ws_eventbus_relay("OPERATIONAL_EVENT", d))
 
 
 @router.websocket("/ws")
