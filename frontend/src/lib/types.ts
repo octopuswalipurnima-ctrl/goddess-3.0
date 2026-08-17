@@ -119,20 +119,31 @@ export interface AIDiagnosticsData {
   configured_keys: number;
   available_keys: number;
   cooldown_keys: number;
+  unavailable_keys?: number;
   active_requests: number;
   queued_requests: number;
   total_requests: number;
   successful_requests: number;
   failed_requests: number;
+  quota_failures?: number;
+  failure_rate?: number;
   primary_model: string;
   fallback_model: string;
+  status?: string;
 }
 
 export interface YouTubeDiagnosticsData {
   configured_keys: number;
   available_keys: number;
   cooldown_keys: number;
+  unavailable_keys?: number;
   active_streams: number;
+  total_requests?: number;
+  successful_requests?: number;
+  failed_requests?: number;
+  quota_failures?: number;
+  failure_rate?: number;
+  status?: string;
 }
 
 export interface PersistenceHealthData {

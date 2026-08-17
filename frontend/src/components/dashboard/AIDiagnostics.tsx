@@ -2,7 +2,7 @@
 
 import React from "react";
 import { AIDiagnosticsData } from "@/lib/types";
-import { Cpu, Key, Layers, CheckCircle, AlertCircle, Clock } from "lucide-react";
+import { Cpu, Key, Layers, ShieldAlert } from "lucide-react";
 
 interface Props {
   data?: AIDiagnosticsData;
@@ -13,14 +13,27 @@ export function AIDiagnostics({ data }: Props) {
     configured_keys: 0,
     available_keys: 0,
     cooldown_keys: 0,
+    unavailable_keys: 0,
     active_requests: 0,
     queued_requests: 0,
     total_requests: 0,
     successful_requests: 0,
     failed_requests: 0,
+    quota_failures: 0,
+    failure_rate: 0,
     primary_model: "gemini-2.5-flash",
     fallback_model: "gemini-2.5-flash-lite",
+    status: "HEALTHY",
   };
+
+  const statusColor =
+    diag.status === "HEALTHY"
+      ? "text-cyan-400 border-cyan-800/40 bg-cyan-950/60"
+      : diag.status === "DEGRADED"
+      ? "text-amber-400 border-amber-800/40 bg-amber-950/60"
+      : diag.status === "UNAVAILABLE"
+      ? "text-rose-400 border-rose-800/40 bg-rose-950/60"
+      : "text-slate-400 border-slate-800/40 bg-slate-950/60";
 
   return (
     <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-xl space-y-3">
@@ -31,8 +44,8 @@ export function AIDiagnostics({ data }: Props) {
             Gemini AI Diagnostics
           </h2>
         </div>
-        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800/40">
-          Token-Bucket Limiter Active
+        <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${statusColor}`}>
+          {diag.status || "TOKEN-BUCKET ACTIVE"}
         </span>
       </div>
 
@@ -47,7 +60,7 @@ export function AIDiagnostics({ data }: Props) {
           </div>
           {diag.cooldown_keys > 0 && (
             <span className="text-[9px] text-amber-400 block mt-0.5">
-              {diag.cooldown_keys} key(s) in cooldown
+              {diag.cooldown_keys} in cooldown
             </span>
           )}
         </div>
@@ -64,11 +77,16 @@ export function AIDiagnostics({ data }: Props) {
         </div>
 
         <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80">
-          <span className="text-[10px] text-slate-500 block">MODEL ROUTING</span>
+          <span className="text-[10px] text-slate-500 block">ROUTING & QUOTAS</span>
           <div className="mt-0.5 space-y-0.5">
             <div className="text-xs font-bold text-cyan-300 truncate">P: {diag.primary_model}</div>
             <div className="text-[10px] text-slate-400 truncate">F: {diag.fallback_model}</div>
           </div>
+          {diag.quota_failures ? (
+            <span className="text-[9px] text-amber-400 block mt-0.5">
+              {diag.quota_failures} Quota Trips
+            </span>
+          ) : null}
         </div>
 
         <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80">
@@ -78,7 +96,9 @@ export function AIDiagnostics({ data }: Props) {
             <span className="text-slate-600">&bull;</span>
             <span className="text-rose-400">{diag.failed_requests} fail</span>
           </div>
-          <span className="text-[9px] text-slate-400 block mt-0.5">Total: {diag.total_requests}</span>
+          <span className="text-[9px] text-slate-400 block mt-0.5">
+            Total: {diag.total_requests} (Fail: {(diag.failure_rate ? diag.failure_rate * 100 : 0).toFixed(1)}%)
+          </span>
         </div>
       </div>
     </div>

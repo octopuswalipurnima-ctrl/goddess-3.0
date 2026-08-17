@@ -111,25 +111,39 @@ async def get_dashboard_overview():
     }
 
     # 5. AI Diagnostics (Safe summary, 0 raw secrets)
+    from app.services.providers.health import provider_health_service
+    gemini_health = provider_health_service.get_gemini_provider_health()
     gemini_diag = {
-        "configured_keys": gemini_credentials.configured_count,
-        "available_keys": gemini_credentials.available_count,
-        "cooldown_keys": sum(1 for s in gemini_credentials._slots.values() if s.state.value == "COOLDOWN"),
+        "configured_keys": gemini_health.credential_count,
+        "available_keys": gemini_health.healthy_count,
+        "cooldown_keys": gemini_health.cooldown_count,
+        "unavailable_keys": gemini_health.unavailable_count,
         "active_requests": gemini_manager.metrics.active_requests,
         "queued_requests": gemini_manager.metrics.queued_requests,
-        "total_requests": gemini_manager.metrics.total_requests,
-        "successful_requests": gemini_manager.metrics.successful_requests,
-        "failed_requests": gemini_manager.metrics.failed_requests,
+        "total_requests": gemini_health.total_requests,
+        "successful_requests": gemini_health.successful_requests,
+        "failed_requests": gemini_health.failed_requests,
+        "quota_failures": gemini_health.quota_failures,
+        "failure_rate": gemini_health.failure_rate,
         "primary_model": settings.gemini_primary_model,
         "fallback_model": settings.gemini_fallback_model,
+        "status": gemini_health.status,
     }
 
     # 6. YouTube Diagnostics (Safe summary, 0 raw secrets)
+    yt_health = provider_health_service.get_youtube_provider_health()
     yt_diag = {
-        "configured_keys": youtube_credentials.configured_count,
-        "available_keys": youtube_credentials.available_count,
-        "cooldown_keys": sum(1 for s in youtube_credentials._slots.values() if s.state.value == "COOLDOWN"),
+        "configured_keys": yt_health.credential_count,
+        "available_keys": yt_health.healthy_count,
+        "cooldown_keys": yt_health.cooldown_count,
+        "unavailable_keys": yt_health.unavailable_count,
         "active_streams": len(active_sessions),
+        "total_requests": yt_health.total_requests,
+        "successful_requests": yt_health.successful_requests,
+        "failed_requests": yt_health.failed_requests,
+        "quota_failures": yt_health.quota_failures,
+        "failure_rate": yt_health.failure_rate,
+        "status": yt_health.status,
     }
 
     # 7. Persistence Health (PostgreSQL & Redis safe telemetry)

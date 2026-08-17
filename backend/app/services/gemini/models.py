@@ -39,12 +39,26 @@ class CredentialState(str, Enum):
 
 class CredentialHealth(BaseModel):
     key_id: str = Field(description="Safe key identifier, e.g., 'gemini-key-1'")
+    credential_id: Optional[str] = Field(default=None, description="Alias for key_id")
     state: CredentialState = Field(default=CredentialState.AVAILABLE)
     failure_count: int = Field(default=0)
+    consecutive_failures: int = Field(default=0)
     total_requests: int = Field(default=0)
+    successful_requests: int = Field(default=0)
+    failed_requests: int = Field(default=0)
+    rate_limit_failures: int = Field(default=0)
+    quota_failures: int = Field(default=0)
     last_used: Optional[str] = Field(default=None)
+    last_used_at: Optional[str] = Field(default=None)
     cooldown_until: Optional[str] = Field(default=None)
     last_error: Optional[str] = Field(default=None)
+    last_error_type: Optional[str] = Field(default=None)
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.credential_id is None:
+            self.credential_id = self.key_id
+        if self.last_used_at is None and self.last_used is not None:
+            self.last_used_at = self.last_used
 
 
 class AIRequest(BaseModel):
