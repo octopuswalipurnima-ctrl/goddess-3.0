@@ -6,9 +6,10 @@ of pluggable extension modules globally and per stream.
 """
 
 from typing import Any, Dict, List
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
+from app.auth.dependencies import require_permission
 from app.modules import (
     ModuleHealth,
     ModuleInfo,
@@ -25,13 +26,23 @@ class ModuleConfigUpdateRequest(BaseModel):
     settings: Dict[str, Any] = {}
 
 
-@router.get("", response_model=List[ModuleInfo], summary="List Registered Modules")
+@router.get(
+    "",
+    response_model=List[ModuleInfo],
+    dependencies=[Depends(require_permission("modules.read"))],
+    summary="List Registered Modules",
+)
 async def list_modules():
     """List all registered modules with global status, capabilities, and health."""
     return module_manager.list_modules()
 
 
-@router.get("/{module_id}", response_model=ModuleInfo, summary="Get Module Details")
+@router.get(
+    "/{module_id}",
+    response_model=ModuleInfo,
+    dependencies=[Depends(require_permission("modules.read"))],
+    summary="Get Module Details",
+)
 async def get_module_details(module_id: str):
     """Retrieve detailed metadata, lifecycle state, and diagnostics for a specific module."""
     try:
@@ -43,7 +54,12 @@ async def get_module_details(module_id: str):
         )
 
 
-@router.post("/{module_id}/enable", response_model=ModuleInfo, summary="Enable Module Globally")
+@router.post(
+    "/{module_id}/enable",
+    response_model=ModuleInfo,
+    dependencies=[Depends(require_permission("modules.configure"))],
+    summary="Enable Module Globally",
+)
 async def enable_module(module_id: str):
     """Enable a module globally."""
     try:
@@ -61,7 +77,12 @@ async def enable_module(module_id: str):
         )
 
 
-@router.post("/{module_id}/disable", response_model=ModuleInfo, summary="Disable Module Globally")
+@router.post(
+    "/{module_id}/disable",
+    response_model=ModuleInfo,
+    dependencies=[Depends(require_permission("modules.configure"))],
+    summary="Disable Module Globally",
+)
 async def disable_module(module_id: str):
     """Disable a module globally."""
     try:
@@ -79,7 +100,12 @@ async def disable_module(module_id: str):
         )
 
 
-@router.post("/{module_id}/start", response_model=ModuleInfo, summary="Start Module")
+@router.post(
+    "/{module_id}/start",
+    response_model=ModuleInfo,
+    dependencies=[Depends(require_permission("modules.configure"))],
+    summary="Start Module",
+)
 async def start_module(module_id: str):
     """Start an enabled module."""
     try:
@@ -97,7 +123,12 @@ async def start_module(module_id: str):
         )
 
 
-@router.post("/{module_id}/stop", response_model=ModuleInfo, summary="Stop Module")
+@router.post(
+    "/{module_id}/stop",
+    response_model=ModuleInfo,
+    dependencies=[Depends(require_permission("modules.configure"))],
+    summary="Stop Module",
+)
 async def stop_module(module_id: str):
     """Stop a running module."""
     try:
@@ -115,7 +146,12 @@ async def stop_module(module_id: str):
         )
 
 
-@router.get("/{module_id}/health", response_model=ModuleHealth, summary="Get Module Health")
+@router.get(
+    "/{module_id}/health",
+    response_model=ModuleHealth,
+    dependencies=[Depends(require_permission("modules.read"))],
+    summary="Get Module Health",
+)
 async def get_module_health(module_id: str):
     """Get health status and diagnostics for a module."""
     try:
@@ -128,7 +164,12 @@ async def get_module_health(module_id: str):
         )
 
 
-@router.get("/{module_id}/config/{stream_id}", response_model=StreamModuleConfig, summary="Get Stream Module Configuration")
+@router.get(
+    "/{module_id}/config/{stream_id}",
+    response_model=StreamModuleConfig,
+    dependencies=[Depends(require_permission("modules.read"))],
+    summary="Get Stream Module Configuration",
+)
 async def get_stream_module_config(module_id: str, stream_id: str):
     """Retrieve stream-specific configuration for a module."""
     try:
@@ -140,7 +181,12 @@ async def get_stream_module_config(module_id: str, stream_id: str):
         )
 
 
-@router.put("/{module_id}/config/{stream_id}", response_model=StreamModuleConfig, summary="Update Stream Module Configuration")
+@router.put(
+    "/{module_id}/config/{stream_id}",
+    response_model=StreamModuleConfig,
+    dependencies=[Depends(require_permission("modules.configure"))],
+    summary="Update Stream Module Configuration",
+)
 async def update_stream_module_config(module_id: str, stream_id: str, payload: ModuleConfigUpdateRequest):
     """Update stream-specific configuration for a module."""
     try:

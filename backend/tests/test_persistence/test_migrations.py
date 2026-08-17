@@ -13,7 +13,7 @@ def test_alembic_config_and_scripts():
     script = ScriptDirectory.from_config(alembic_cfg)
     heads = script.get_heads()
     assert len(heads) == 1
-    assert heads[0] == "0001_initial"
+    assert heads[0] == "0002_add_users"
 
 
 def test_migration_revisions():

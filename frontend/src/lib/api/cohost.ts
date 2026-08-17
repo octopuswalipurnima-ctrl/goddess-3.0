@@ -3,11 +3,15 @@
  */
 
 import { CoHostAuditItem, CoHostMetrics } from "../types";
+import { getAuthHeaders } from "./auth";
 
-const API_BASE = "http://127.0.0.1:8000/api/v1";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api/v1";
 
 export async function fetchCoHostStats(): Promise<CoHostMetrics> {
-  const res = await fetch(`${API_BASE}/cohost/stats`, { cache: "no-store" });
+  const res = await fetch(`${API_BASE}/cohost/stats`, {
+    cache: "no-store",
+    headers: getAuthHeaders(),
+  });
   if (!res.ok) {
     throw new Error(`Failed to fetch Co-Host stats: ${res.statusText}`);
   }
@@ -15,7 +19,10 @@ export async function fetchCoHostStats(): Promise<CoHostMetrics> {
 }
 
 export async function fetchCoHostAudit(streamId: string): Promise<CoHostAuditItem[]> {
-  const res = await fetch(`${API_BASE}/cohost/audit/${streamId}`, { cache: "no-store" });
+  const res = await fetch(`${API_BASE}/cohost/audit/${streamId}`, {
+    cache: "no-store",
+    headers: getAuthHeaders(),
+  });
   if (!res.ok) {
     throw new Error(`Failed to fetch Co-Host audit for ${streamId}: ${res.statusText}`);
   }
@@ -25,7 +32,7 @@ export async function fetchCoHostAudit(streamId: string): Promise<CoHostAuditIte
 export async function updateCoHostConfig(streamId: string, config: any): Promise<any> {
   const res = await fetch(`${API_BASE}/cohost/config/${streamId}`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders(),
     body: JSON.stringify(config),
   });
   if (!res.ok) {

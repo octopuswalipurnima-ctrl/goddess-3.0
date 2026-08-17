@@ -80,5 +80,16 @@ The project is built in structured, test-driven milestones.
 
 ---
 
-### Upcoming Milestones ⏳
-- **Milestone 8**: Cloud Deployment (Railway) & Security Hardening
+### Milestone 8: Production Security, Authentication, Deployment & Reliability ✅
+- PBKDF2-HMAC-SHA256 password hashing with 100,000 rounds and 32-byte salt
+- Signed HS256 JWT tokens with role, permissions, expiration, issuer and audience validation
+- 4-Tier Hierarchical RBAC (`OWNER`, `ADMIN`, `OPERATOR`, `VIEWER`)
+- Defense-in-depth HTTP security headers (`nosniff`, `DENY`, `strict-origin-when-cross-origin`)
+- End-to-end `X-Request-ID` correlation middleware and distributed tracing
+- Multi-tier Rate Limiter (Auth: 10/min, Emergency: 20/min, General: 120/min) with Redis & in-memory fallback
+- Hardened WebSocket connection manager with authentication, user limits, and stream isolation
+- Liveness (`/health/live`) and Readiness (`/health/ready`) probes with Honest Health separation
+- Deterministic 10-step startup recovery and graceful shutdown sequence
+- Production Railway deployment configuration (`railway.json`, `Procfile`, `.env.example`)
+- Comprehensive test suite (182 tests passing with 0 regressions)
+

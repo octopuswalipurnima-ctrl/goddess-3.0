@@ -9,3 +9,4 @@ export * from "./api/moderation";
 export * from "./api/cohost";
 export * from "./api/modules";
 export * from "./api/dashboard";
+export * from "./api/auth";

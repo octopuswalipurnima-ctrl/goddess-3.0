@@ -10,6 +10,7 @@ from app.db.repositories.moderation_repository import ModerationRepository
 from app.db.repositories.cohost_repository import CoHostRepository
 from app.db.repositories.module_repository import ModuleRepository
 from app.db.repositories.creator_settings_repository import CreatorSettingsRepository
+from app.db.repositories.user_repository import UserRepository
 
 __all__ = [
     "BaseRepository",
@@ -18,4 +19,5 @@ __all__ = [
     "CoHostRepository",
     "ModuleRepository",
     "CreatorSettingsRepository",
+    "UserRepository",
 ]

@@ -6,9 +6,12 @@ Provides endpoints to manage per-stream moderation configs, emergency controls
 """
 
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
+from app.auth.dependencies import get_current_user, require_permission
+from app.auth.exceptions import PermissionDeniedException
+from app.auth.models import UserSchema
 from app.services.moderation import (
     ModerationAuditRecord,
     ModerationDecision,
@@ -53,38 +56,79 @@ class ModerationTestRequest(BaseModel):
     is_chat_sponsor: bool = False
 
 
-@router.get("/config/{stream_id}", response_model=StreamModerationConfig, summary="Get Stream Moderation Configuration")
+@router.get(
+    "/config/{stream_id}",
+    response_model=StreamModerationConfig,
+    dependencies=[Depends(require_permission("moderation.read"))],
+    summary="Get Stream Moderation Configuration",
+)
 async def get_stream_config(stream_id: str):
     """Retrieve moderation settings for a specific stream."""
     return moderation_manager.get_config(stream_id)
 
 
-@router.put("/config/{stream_id}", response_model=StreamModerationConfig, summary="Update Stream Moderation Configuration")
-async def update_stream_config(stream_id: str, payload: ModerationConfigUpdateRequest):
+@router.put(
+    "/config/{stream_id}",
+    response_model=StreamModerationConfig,
+    dependencies=[Depends(require_permission("moderation.configure"))],
+    summary="Update Stream Moderation Configuration",
+)
+async def update_stream_config(
+    stream_id: str,
+    payload: ModerationConfigUpdateRequest,
+    current_user: UserSchema = Depends(get_current_user),
+):
     """Update moderation settings (e.g. toggle emergency kill switch, safe mode, dry-run, automation)."""
+    # Emergency controls require moderation.emergency permission
+    if (payload.kill_switch is not None or payload.safe_mode is not None) and "moderation.emergency" not in current_user.permissions:
+        raise PermissionDeniedException(
+            detail="Toggling kill switch or safe mode requires 'moderation.emergency' permission.",
+            required_permission="moderation.emergency",
+        )
+
     updates = payload.model_dump(exclude_unset=True)
     return moderation_manager.update_config(stream_id, updates)
 
 
-@router.post("/circuit-breaker/reset/{stream_id}", response_model=StreamModerationConfig, summary="Reset Moderation Circuit Breaker")
+@router.post(
+    "/circuit-breaker/reset/{stream_id}",
+    response_model=StreamModerationConfig,
+    dependencies=[Depends(require_permission("moderation.emergency"))],
+    summary="Reset Moderation Circuit Breaker",
+)
 async def reset_circuit_breaker(stream_id: str):
     """Explicitly reset the automatic moderation circuit breaker for a stream."""
     return moderation_manager.reset_circuit_breaker(stream_id)
 
 
-@router.get("/audit/{stream_id}", response_model=List[ModerationAuditRecord], summary="Get Recent Moderation Audit Log")
+@router.get(
+    "/audit/{stream_id}",
+    response_model=List[ModerationAuditRecord],
+    dependencies=[Depends(require_permission("moderation.read"))],
+    summary="Get Recent Moderation Audit Log",
+)
 async def get_stream_audit_log(stream_id: str, limit: int = 50):
     """Fetch the latest moderation decisions and action audit records for a stream."""
     return moderation_audit_logger.get_recent_records(stream_id, limit=limit)
 
 
-@router.get("/stats", response_model=ModerationMetrics, summary="Get Moderation Metrics")
+@router.get(
+    "/stats",
+    response_model=ModerationMetrics,
+    dependencies=[Depends(require_permission("moderation.read"))],
+    summary="Get Moderation Metrics",
+)
 async def get_moderation_stats():
     """Fetch global moderation metrics (messages analyzed, rule matches, actions executed/blocked, dry-runs)."""
     return moderation_manager.metrics
 
 
-@router.post("/test", response_model=ModerationDecision, summary="Dry-Run Test Chat Message Moderation")
+@router.post(
+    "/test",
+    response_model=ModerationDecision,
+    dependencies=[Depends(require_permission("moderation.read"))],
+    summary="Dry-Run Test Chat Message Moderation",
+)
 async def test_moderation(payload: ModerationTestRequest):
     """
     Dry-run evaluate a test message through the 3-tier moderation engine

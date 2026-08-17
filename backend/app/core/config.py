@@ -67,12 +67,21 @@ class Settings(BaseSettings):
     gemini_rate_limit_refill_rate: float = Field(default=0.5, gt=0.0, description="Rate limiter refill tokens per second")
     gemini_max_retries: int = Field(default=3, ge=0, description="Max retry attempts for retryable errors")
 
-    # Security
+    # Security & Authentication
     secret_key: str = Field(
         default="development-insecure-secret-key-change-in-production-min-32-chars",
         description="Cryptographic secret key for JWT/session management",
     )
     access_token_expire_minutes: int = Field(default=1440, description="Access token expiration in minutes")
+    jwt_algorithm: str = Field(default="HS256", description="JWT signing algorithm")
+    jwt_issuer: str = Field(default="goddess-ai", description="JWT token issuer")
+    jwt_audience: str = Field(default="goddess-creators", description="JWT token audience")
+    auth_enabled: bool = Field(default=True, description="Enable authentication and RBAC enforcement")
+    auth_dev_bypass: bool = Field(default=False, description="Explicit development-only authentication bypass")
+    bootstrap_owner_username: str = Field(default="creator", description="Bootstrap owner username")
+    bootstrap_owner_password: Optional[str] = Field(default=None, description="Bootstrap owner password (from env)")
+    bootstrap_owner_email: Optional[str] = Field(default="creator@goddess.local", description="Bootstrap owner email")
+    rate_limit_enabled: bool = Field(default=True, description="Enable API rate limiting")
 
     @field_validator("cors_origins", mode="before")
     @classmethod

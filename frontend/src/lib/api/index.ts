@@ -8,3 +8,4 @@ export * from "./moderation";
 export * from "./cohost";
 export * from "./modules";
 export * from "./dashboard";
+export * from "./auth";

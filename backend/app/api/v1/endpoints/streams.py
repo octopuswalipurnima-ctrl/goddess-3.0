@@ -6,9 +6,10 @@ and receive WebSub push discovery notifications.
 """
 
 from typing import List, Optional
-from fastapi import APIRouter, Header, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 
+from app.auth.dependencies import require_permission
 from app.services.youtube import (
     ChatMessage,
     ChatMessageValidationError,
@@ -34,13 +35,24 @@ class PostChatMessageRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=200, description="Chat message text (max 200 chars)")
 
 
-@router.get("", response_model=List[StreamSessionSummary], summary="List Active Stream Sessions")
+@router.get(
+    "",
+    response_model=List[StreamSessionSummary],
+    dependencies=[Depends(require_permission("stream.read"))],
+    summary="List Active Stream Sessions",
+)
 async def list_streams():
     """Get summaries for all currently tracked YouTube live stream sessions."""
     return stream_manager.list_sessions()
 
 
-@router.post("", response_model=StreamSessionSummary, status_code=status.HTTP_201_CREATED, summary="Connect New Live Stream")
+@router.post(
+    "",
+    response_model=StreamSessionSummary,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("stream.control"))],
+    summary="Connect New Live Stream",
+)
 async def create_stream(request: CreateStreamRequest):
     """
     Register and start monitoring a YouTube live stream session.
@@ -103,7 +115,12 @@ async def websub_notification_receiver(
     return {"status": "received", "video_id": video_id}
 
 
-@router.get("/{stream_id}", response_model=StreamSessionSummary, summary="Get Stream Session Details")
+@router.get(
+    "/{stream_id}",
+    response_model=StreamSessionSummary,
+    dependencies=[Depends(require_permission("stream.read"))],
+    summary="Get Stream Session Details",
+)
 async def get_stream(stream_id: str):
     """Get detailed status and metrics for a specific stream session."""
     session = stream_manager.get_session(stream_id)
@@ -115,7 +132,11 @@ async def get_stream(stream_id: str):
     return session.to_summary()
 
 
-@router.post("/{stream_id}/stop", summary="Stop Live Stream Session")
+@router.post(
+    "/{stream_id}/stop",
+    dependencies=[Depends(require_permission("stream.control"))],
+    summary="Stop Live Stream Session",
+)
 async def stop_stream(stream_id: str):
     """Stop live chat polling and disconnect a stream session."""
     stopped = await stream_manager.stop_session(stream_id, reason="Stopped via API")
@@ -127,7 +148,12 @@ async def stop_stream(stream_id: str):
     return {"status": "success", "message": f"Stream session '{stream_id}' stopped."}
 
 
-@router.post("/{stream_id}/chat", response_model=ChatMessage, summary="Post Live Chat Message")
+@router.post(
+    "/{stream_id}/chat",
+    response_model=ChatMessage,
+    dependencies=[Depends(require_permission("stream.control"))],
+    summary="Post Live Chat Message",
+)
 async def post_chat_message(stream_id: str, request: PostChatMessageRequest):
     """Post an outgoing message to the stream's YouTube Live Chat."""
     session = stream_manager.get_session(stream_id)

@@ -12,7 +12,7 @@ Provides simple, honest reporting of system and component status:
 from datetime import datetime, timezone
 import time
 from typing import Dict, Any, Optional
-from fastapi import APIRouter
+from fastapi import APIRouter, Response, status
 from pydantic import BaseModel
 
 from app.core.config import settings
@@ -27,6 +27,77 @@ from app.services.youtube.stream_manager import stream_manager
 router = APIRouter()
 
 START_TIME = time.time()
+
+
+class LivenessResponse(BaseModel):
+    status: str
+    app: str
+    version: str
+    uptime_seconds: float
+    timestamp: str
+
+
+class ReadinessResponse(BaseModel):
+    status: str
+    details: str
+    database_status: str
+    redis_status: str
+    timestamp: str
+
+
+@router.get("/health/live", response_model=LivenessResponse, summary="Process Liveness Probe")
+async def get_liveness():
+    """
+    Kubernetes / Railway liveness probe.
+    Returns 200 OK if the application process is running.
+    """
+    return LivenessResponse(
+        status="LIVE",
+        app=settings.app_name,
+        version=settings.app_version,
+        uptime_seconds=round(time.time() - START_TIME, 2),
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+@router.get("/health/ready", response_model=ReadinessResponse, summary="Service Readiness Probe")
+async def get_readiness(response: Response):
+    """
+    Kubernetes / Railway readiness probe.
+    Verifies that the database and internal dependencies are ready to accept traffic.
+    """
+    db_health = await ping_database()
+    redis_health = await redis_state.ping()
+
+    is_db_ok = db_health["status"] in ["HEALTHY", "NOT_CONFIGURED"]
+    is_redis_ok = redis_health["status"] in ["HEALTHY", "NOT_CONFIGURED", "DEGRADED", "UNAVAILABLE"]
+
+    now_utc = datetime.now(timezone.utc).isoformat()
+
+    if not is_db_ok:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return ReadinessResponse(
+            status="NOT_READY",
+            details="Database dependency unreachable",
+            database_status=db_health["status"],
+            redis_status=redis_health["status"],
+            timestamp=now_utc,
+        )
+
+    readiness_status = "READY"
+    details = "System is ready for traffic"
+
+    if redis_health["status"] in ["DEGRADED", "UNAVAILABLE"]:
+        readiness_status = "READY_DEGRADED"
+        details = "System is ready (operating with local in-memory fallback for Redis)"
+
+    return ReadinessResponse(
+        status=readiness_status,
+        details=details,
+        database_status=db_health["status"],
+        redis_status=redis_health["status"],
+        timestamp=now_utc,
+    )
 
 
 class ComponentStatus(BaseModel):

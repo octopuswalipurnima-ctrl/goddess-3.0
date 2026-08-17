@@ -3,9 +3,10 @@ API v1 Router Aggregator for GODDESS AI 2.0.
 """
 
 from fastapi import APIRouter
-from app.api.v1.endpoints import ai, cohost, dashboard, health, moderation, modules, streams, ws
+from app.api.v1.endpoints import ai, auth, cohost, dashboard, health, moderation, modules, streams, ws
 
 api_router = APIRouter()
+api_router.include_router(auth.router)
 api_router.include_router(health.router, tags=["Health"])
 api_router.include_router(dashboard.router, tags=["Dashboard Overview"])
 api_router.include_router(streams.router)

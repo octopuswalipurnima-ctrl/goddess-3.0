@@ -6,9 +6,10 @@ emergency controls, audit history, and dry-run test simulations.
 """
 
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
+from app.auth.dependencies import require_permission
 from app.services.cohost import (
     CoHostAuditRecord,
     CoHostConfig,
@@ -54,32 +55,57 @@ class CoHostTestRequest(BaseModel):
     is_chat_sponsor: bool = False
 
 
-@router.get("/config/{stream_id}", response_model=CoHostConfig, summary="Get Stream Co-Host Configuration")
+@router.get(
+    "/config/{stream_id}",
+    response_model=CoHostConfig,
+    dependencies=[Depends(require_permission("cohost.read"))],
+    summary="Get Stream Co-Host Configuration",
+)
 async def get_stream_config(stream_id: str):
     """Retrieve Co-Host settings and persona for a specific stream."""
     return cohost_manager.get_config(stream_id)
 
 
-@router.put("/config/{stream_id}", response_model=CoHostConfig, summary="Update Stream Co-Host Configuration")
+@router.put(
+    "/config/{stream_id}",
+    response_model=CoHostConfig,
+    dependencies=[Depends(require_permission("cohost.configure"))],
+    summary="Update Stream Co-Host Configuration",
+)
 async def update_stream_config(stream_id: str, payload: CoHostConfigUpdateRequest):
     """Update Co-Host settings (e.g. toggle enabled, dry-run, emergency stop, personality)."""
     updates = payload.model_dump(exclude_unset=True)
     return cohost_manager.update_config(stream_id, updates)
 
 
-@router.get("/audit/{stream_id}", response_model=List[CoHostAuditRecord], summary="Get Recent Co-Host Audit Log")
+@router.get(
+    "/audit/{stream_id}",
+    response_model=List[CoHostAuditRecord],
+    dependencies=[Depends(require_permission("cohost.read"))],
+    summary="Get Recent Co-Host Audit Log",
+)
 async def get_stream_audit_log(stream_id: str, limit: int = 50):
     """Fetch the latest Co-Host generated replies and audit records for a stream."""
     return cohost_audit_logger.get_recent_records(stream_id, limit=limit)
 
 
-@router.get("/stats", response_model=CoHostMetrics, summary="Get Co-Host Metrics")
+@router.get(
+    "/stats",
+    response_model=CoHostMetrics,
+    dependencies=[Depends(require_permission("cohost.read"))],
+    summary="Get Co-Host Metrics",
+)
 async def get_cohost_stats():
     """Fetch global Co-Host metrics (messages analyzed, intents, responses sent, dry-run, blocked)."""
     return cohost_manager.metrics
 
 
-@router.post("/test", response_model=Optional[CoHostResponse], summary="Dry-Run Test Co-Host Response")
+@router.post(
+    "/test",
+    response_model=Optional[CoHostResponse],
+    dependencies=[Depends(require_permission("cohost.read"))],
+    summary="Dry-Run Test Co-Host Response",
+)
 async def test_cohost(payload: CoHostTestRequest):
     """
     Simulate processing a chat message through the Co-Host pipeline in DRY_RUN mode.

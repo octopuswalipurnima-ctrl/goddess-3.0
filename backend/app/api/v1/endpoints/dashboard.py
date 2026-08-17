@@ -7,9 +7,10 @@ Consumes existing services without duplicating business logic or exposing creden
 
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from app.auth.dependencies import require_permission
 from app.core.config import settings
 from app.core.redis import redis_state
 from app.db.session import ping_database
@@ -35,7 +36,12 @@ class DashboardOverviewResponse(BaseModel):
     persistence_health: Optional[Dict[str, Any]] = None
 
 
-@router.get("/overview", response_model=DashboardOverviewResponse, summary="Get Creator Dashboard Overview")
+@router.get(
+    "/overview",
+    response_model=DashboardOverviewResponse,
+    dependencies=[Depends(require_permission("dashboard.read"))],
+    summary="Get Creator Dashboard Overview",
+)
 async def get_dashboard_overview():
     """
     Aggregates live health, multi-stream sessions, moderation stats,

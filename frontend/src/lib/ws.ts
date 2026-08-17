@@ -6,6 +6,7 @@
  */
 
 import { ActivityEvent, ConnectionState } from "./types";
+import { getStoredToken } from "./api/auth";
 
 type EventListener = (event: any) => void;
 type StateListener = (state: ConnectionState) => void;
@@ -41,7 +42,10 @@ class DashboardWebSocketManager {
     try {
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const host = window.location.hostname === "localhost" ? "127.0.0.1:8000" : window.location.host;
-      const wsUrl = `${protocol}//${host}/api/v1/ws`;
+      const token = getStoredToken();
+      const wsUrl = token
+        ? `${protocol}//${host}/api/v1/ws?token=${encodeURIComponent(token)}`
+        : `${protocol}//${host}/api/v1/ws`;
 
       this.ws = new WebSocket(wsUrl);
 

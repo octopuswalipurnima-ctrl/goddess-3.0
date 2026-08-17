@@ -9,6 +9,7 @@ from app.db.models.moderation import ModerationAuditRecordModel
 from app.db.models.cohost import CoHostConfigModel, CoHostAuditRecordModel
 from app.db.models.module import ModuleConfigModel
 from app.db.models.creator_settings import CreatorSettingsModel
+from app.db.models.user import UserModel
 
 __all__ = [
     "StreamModel",
@@ -18,4 +19,5 @@ __all__ = [
     "CoHostAuditRecordModel",
     "ModuleConfigModel",
     "CreatorSettingsModel",
+    "UserModel",
 ]
