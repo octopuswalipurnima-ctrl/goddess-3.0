@@ -33,9 +33,15 @@ class Settings(BaseSettings):
         description="Allowed CORS origin URLs",
     )
 
-    # Database & Redis (Optional / Not Configured in Milestone 0)
+    # Database & Redis Settings
     database_url: Optional[str] = Field(default=None, description="PostgreSQL async connection URL")
     redis_url: Optional[str] = Field(default=None, description="Redis connection URL")
+    db_pool_size: int = Field(default=5, ge=1, description="Database connection pool size")
+    db_max_overflow: int = Field(default=10, ge=0, description="Database connection pool max overflow")
+    db_pool_timeout: float = Field(default=30.0, ge=1.0, description="Database connection acquisition timeout")
+    db_pool_recycle: int = Field(default=1800, ge=60, description="Database connection pool recycle seconds")
+    db_echo: bool = Field(default=False, description="Echo SQL statements in debug mode")
+    audit_retention_days: int = Field(default=30, ge=1, description="Retention period in days for moderation/co-host audit records")
 
     # YouTube Data API Credentials (Up to 4 Rotated Keys)
     youtube_api_key_1: Optional[str] = Field(default=None, description="Primary YouTube API Key")

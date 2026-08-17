@@ -29,7 +29,13 @@
    - Standardized lifecycle state machine with topological dependency resolution.
    - Complete failure isolation for external modules.
 
-7. **Creator Control Center & Real-Time Dashboard**:
+7. **Production Persistence & Reliability Layer**:
+   - PostgreSQL (SQLAlchemy 2.0 Async + asyncpg) as persistent source of truth.
+   - Alembic migration pipeline.
+   - Transient Redis state manager with safe in-memory fallback.
+   - Restart Recovery and Bounded Audit Retention Pruning.
+
+8. **Creator Control Center & Real-Time Dashboard**:
    - Centralized shared WebSocket connection with exponential backoff.
    - 4-stream live overview, granular stream controls, and emergency confirmation dialogs.
    - Honest component health diagnostics.
@@ -46,7 +52,7 @@
 |  |                 Next.js 15 Creator Control Center                 |  |
 |  |   - 4-Stream Overview       - Stream Controls   - Moderation Feed |  |
 |  |   - AI Co-Host Feed         - Module Center     - Emergency Modal |  |
-|  |   - AI/YouTube Diagnostics  - Shared WebSocket  - Activity Log    |  |
+|  |   - AI/YouTube Diagnostics  - Persistence Health- Activity Log    |  |
 |  +-------------------------------------------------------------------+  |
 |                                     │ (REST & Central WS)               |
 |                                     ▼                                   |
@@ -77,6 +83,14 @@
 |  |   - AI Moderation Engine (3-Tier, Action Policy, Circuit Breaker) |  |
 |  |   - AI Co-Host Engine (Intents, Bounded Memory, Anti-Spam)        |  |
 |  |   - Modular Module System (Commands, Welcome, Stats, Interaction) |  |
+|  +-------------------------------------------------------------------+  |
+|                                     │                                   |
+|                                     ▼                                   |
+|  +-------------------------------------------------------------------+  |
+|  |               Persistence & Reliability Layer                     |  |
+|  |   - PostgreSQL (Asyncpg, Repositories, Alembic Migrations)        |  |
+|  |   - Redis State Manager (Cooldowns, Locks, Safe In-Memory Fallback|  |
+|  |   - Restart Recovery & Bounded Audit Retention Pruning            |  |
 |  +-------------------------------------------------------------------+  |
 +-------------------------------------------------------------------------+
 ```

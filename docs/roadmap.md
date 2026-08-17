@@ -70,6 +70,15 @@ The project is built in structured, test-driven milestones.
 
 ---
 
+### Milestone 7: Production Persistence & Reliability Layer ✅
+- Asynchronous PostgreSQL database integration via SQLAlchemy 2.x and asyncpg
+- Alembic database migration chain (`0001_initial`)
+- Domain Repository Layer (`StreamRepository`, `ModerationRepository`, `CoHostRepository`, `ModuleRepository`, `CreatorSettingsRepository`)
+- Transient Redis state manager with safe local in-memory fallback
+- Restart Recovery Manager and Bounded Audit Retention Pruning (30-day retention)
+- Real PostgreSQL and Redis health diagnostics with zero secret exposure
+
+---
+
 ### Upcoming Milestones ⏳
-- **Milestone 7**: PostgreSQL persistence & Redis distributed state
 - **Milestone 8**: Cloud Deployment (Railway) & Security Hardening

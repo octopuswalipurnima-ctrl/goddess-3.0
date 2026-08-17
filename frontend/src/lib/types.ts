@@ -135,6 +135,24 @@ export interface YouTubeDiagnosticsData {
   active_streams: number;
 }
 
+export interface PersistenceHealthData {
+  database: {
+    status: string;
+    details: string;
+    latency_ms: number | null;
+  };
+  redis: {
+    status: string;
+    details: string;
+    mode: string;
+    latency_ms: number | null;
+  };
+  migration: {
+    status: string;
+    current_revision: string | null;
+  };
+}
+
 export interface DashboardOverview {
   timestamp: string;
   version: string;
@@ -145,6 +163,7 @@ export interface DashboardOverview {
   modules_summary: ModulesSummary;
   ai_diagnostics: AIDiagnosticsData;
   youtube_diagnostics: YouTubeDiagnosticsData;
+  persistence_health?: PersistenceHealthData;
 }
 
 export interface ActivityEvent {

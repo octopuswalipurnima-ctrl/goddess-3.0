@@ -16,6 +16,8 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.core.redis import redis_state
+from app.db.session import ping_database
 from app.services.gemini.credentials import gemini_credentials
 from app.services.gemini.manager import gemini_manager
 from app.services.gemini.router import gemini_router
@@ -52,29 +54,27 @@ async def get_health():
 
     components: Dict[str, ComponentStatus] = {}
 
-    # Database Status (PostgreSQL)
-    if not settings.is_database_configured:
-        components["database"] = ComponentStatus(
-            status="NOT_CONFIGURED",
-            details="DATABASE_URL is not set in environment",
-        )
-    else:
-        components["database"] = ComponentStatus(
-            status="HEALTHY",
-            details="Database URL configured",
-        )
+    # Database Status (PostgreSQL / SQLite)
+    db_health = await ping_database()
+    components["database"] = ComponentStatus(
+        status=db_health["status"],
+        details=db_health["details"],
+        metadata={
+            "latency_ms": db_health.get("latency_ms"),
+            "pool": db_health.get("pool"),
+        },
+    )
 
-    # Redis Status
-    if not settings.is_redis_configured:
-        components["redis"] = ComponentStatus(
-            status="NOT_CONFIGURED",
-            details="REDIS_URL is not set in environment",
-        )
-    else:
-        components["redis"] = ComponentStatus(
-            status="HEALTHY",
-            details="Redis URL configured",
-        )
+    # Redis Status (Transient State / Cache)
+    redis_health = await redis_state.ping()
+    components["redis"] = ComponentStatus(
+        status=redis_health["status"],
+        details=redis_health["details"],
+        metadata={
+            "mode": redis_health.get("mode"),
+            "latency_ms": redis_health.get("latency_ms"),
+        },
+    )
 
     # YouTube Data API & Stream Engine Status
     yt_configured = youtube_credentials.configured_count

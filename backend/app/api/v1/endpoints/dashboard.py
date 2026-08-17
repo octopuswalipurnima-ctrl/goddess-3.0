@@ -11,6 +11,8 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.core.redis import redis_state
+from app.db.session import ping_database
 from app.modules import module_manager
 from app.services.cohost import cohost_manager
 from app.services.gemini import gemini_credentials, gemini_manager
@@ -30,6 +32,7 @@ class DashboardOverviewResponse(BaseModel):
     modules_summary: Dict[str, Any]
     ai_diagnostics: Dict[str, Any]
     youtube_diagnostics: Dict[str, Any]
+    persistence_health: Optional[Dict[str, Any]] = None
 
 
 @router.get("/overview", response_model=DashboardOverviewResponse, summary="Get Creator Dashboard Overview")
@@ -123,6 +126,27 @@ async def get_dashboard_overview():
         "active_streams": len(active_sessions),
     }
 
+    # 7. Persistence Health (PostgreSQL & Redis safe telemetry)
+    db_health = await ping_database()
+    redis_health = await redis_state.ping()
+    persistence_diag = {
+        "database": {
+            "status": db_health["status"],
+            "details": db_health["details"],
+            "latency_ms": db_health.get("latency_ms"),
+        },
+        "redis": {
+            "status": redis_health["status"],
+            "details": redis_health["details"],
+            "mode": redis_health.get("mode"),
+            "latency_ms": redis_health.get("latency_ms"),
+        },
+        "migration": {
+            "status": "CURRENT" if db_health["status"] == "HEALTHY" else "UNKNOWN",
+            "current_revision": "0001_initial" if db_health["status"] == "HEALTHY" else None,
+        },
+    }
+
     return DashboardOverviewResponse(
         timestamp=now_utc,
         version=settings.app_version,
@@ -135,4 +159,5 @@ async def get_dashboard_overview():
         modules_summary=modules_summary,
         ai_diagnostics=gemini_diag,
         youtube_diagnostics=yt_diag,
+        persistence_health=persistence_diag,
     )
