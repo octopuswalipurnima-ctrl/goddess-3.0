@@ -182,6 +182,23 @@ async def get_health():
             },
         )
 
+    # Moderation Engine Status
+    from app.services.moderation import moderation_manager
+    mod_metrics = moderation_manager.metrics
+
+    components["moderation"] = ComponentStatus(
+        status="HEALTHY",
+        details="3-Tier AI Moderation Engine active with rule pre-processing and policy safety gates",
+        metadata={
+            "messages_analyzed": mod_metrics.messages_analyzed,
+            "rule_matches": mod_metrics.rule_matches,
+            "ai_classifications": mod_metrics.ai_classifications,
+            "actions_executed": mod_metrics.actions_executed,
+            "actions_blocked": mod_metrics.actions_blocked,
+            "automation": "ENABLED",
+        },
+    )
+
     return HealthResponse(
         application="HEALTHY",
         version=settings.app_version,

@@ -2,7 +2,7 @@
 Data Models and Enums for YouTube Engine in GODDESS AI 2.0.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
@@ -51,12 +51,12 @@ class LiveStreamInfo(BaseModel):
 class ChatMessage(BaseModel):
     message_id: str
     stream_id: str
-    channel_id: str
+    channel_id: str = Field(default="default_channel")
     author_id: str
     author_name: str
     author_avatar_url: Optional[str] = None
     message_text: str
-    published_at: str
+    published_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     is_chat_owner: bool = False
     is_chat_moderator: bool = False
     is_chat_sponsor: bool = False  # Channel Member

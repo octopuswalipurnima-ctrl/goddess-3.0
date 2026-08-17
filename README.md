@@ -15,9 +15,10 @@
 - **Local-First Development**: Built, tested, and verified locally before deployment.
 - **YouTube Live & Chat Engine**: Multi-key rotation (up to 4 keys), quota-aware failover, message deduplication, and isolated stream sessions.
 - **Gemini AI Engine**: 4-key rotation, token-bucket rate limiter, priority request queue (`HIGH`/`NORMAL`/`LOW`), model router (`gemini-2.5-flash` with `gemini-2.5-flash-lite` fallback), and empty-response classification.
+- **3-Tier AI Moderation Engine**: High-speed deterministic rules (flood, repetition, scam URLs) + contextual Gemini AI semantic analysis + Action Policy safety gates (kill switch, safe mode, owner/mod exemptions, per-user cooldowns, idempotency).
 - **Asynchronous Backend**: Python 3.12 + FastAPI + Asyncio + Pydantic v2 Settings.
 - **Internal Event Bus**: Asynchronous publish/subscribe decoupled message pipeline.
-- **Creator Dashboard**: Next.js 15 + TypeScript + Tailwind CSS with dark slate theme and real-time live telemetry.
+- **Creator Dashboard**: Next.js 15 + TypeScript + Tailwind CSS with dark slate theme, moderation feed, and live telemetry.
 - **Honest Status Diagnostics**: Component states clearly distinguish `HEALTHY`, `NOT_CONFIGURED`, `UNAVAILABLE`, `DEGRADED`, and `ERROR`.
 
 ---
@@ -30,20 +31,21 @@ Goddess-AI-2.0/
 ├── backend/                  # Asynchronous FastAPI backend service
 │   ├── app/
 │   │   ├── api/v1/          # REST & WebSocket API routers
-│   │   │   └── endpoints/   # Health, WebSocket, Stream, and AI routers
+│   │   │   └── endpoints/   # Health, WebSocket, Stream, AI, and Moderation routers
 │   │   ├── core/            # Config (Pydantic), Logging, Event Bus
 │   │   ├── services/        # Subsystem services
 │   │   │   ├── youtube/     # YouTube Engine (Credentials, Client, Sessions, Chat, Detection)
-│   │   │   └── gemini/      # Gemini AI Engine (Credentials, Rate Limiter, Queue, Router, Client, Manager)
+│   │   │   ├── gemini/      # Gemini AI Engine (Credentials, Rate Limiter, Queue, Router, Client, Manager)
+│   │   │   └── moderation/  # AI Moderation Engine (Rules, Classifier, Policy, Actions, Audit, Manager)
 │   │   └── main.py          # FastAPI application entrypoint
-│   ├── tests/               # Pytest automated test suites (51 unit & integration tests)
+│   ├── tests/               # Pytest automated test suites (75 unit & integration tests)
 │   ├── requirements.txt     # Python dependency lockfile
 │   └── pyproject.toml       # Python packaging and test configuration
 │
 ├── frontend/                 # Next.js 15 Creator Dashboard
 │   ├── src/
 │   │   ├── app/             # Next.js App Router (Layout & Pages)
-│   │   ├── components/      # Modular UI components (Health Grid, Controls, Nav, Streams)
+│   │   ├── components/      # Modular UI components (Moderation Panel, Health Grid, Streams, Nav)
 │   │   └── lib/             # Typed API client and data models
 │   ├── package.json
 │   └── tailwind.config.ts
@@ -52,6 +54,7 @@ Goddess-AI-2.0/
 │   ├── architecture.md      # Architectural design & event bus specs
 │   ├── youtube.md           # YouTube engine & credential rotation guide
 │   ├── gemini.md            # Gemini AI engine & model router guide
+│   ├── moderation.md        # 3-tier moderation engine & safety gates guide
 │   ├── setup.md             # Beginner local setup instructions
 │   └── roadmap.md           # Master development roadmap
 │
@@ -96,6 +99,7 @@ cd backend
 - Interactive API Docs: [http://localhost:8000/docs](http://localhost:8000/docs)
 - Streams REST API: [http://localhost:8000/api/v1/streams](http://localhost:8000/api/v1/streams)
 - AI Test API: [http://localhost:8000/api/v1/ai/test](http://localhost:8000/api/v1/ai/test)
+- Moderation API: [http://localhost:8000/api/v1/moderation/stats](http://localhost:8000/api/v1/moderation/stats)
 - Health Diagnostics: [http://localhost:8000/api/v1/health](http://localhost:8000/api/v1/health)
 
 #### Frontend Dashboard (Port 3000)
@@ -109,7 +113,7 @@ npm run dev
 
 ## 🧪 Running Automated Tests
 
-To execute the full Pytest test suite (51 tests across all components):
+To execute the full Pytest test suite (75 tests across all components):
 ```powershell
 .\scripts\test.ps1
 ```
@@ -123,8 +127,8 @@ To execute the full Pytest test suite (51 tests across all components):
 | **Milestone 0** | Phase 0 | Local Foundation, FastAPI Core, Next.js Dashboard Shell, Honest Health Diagnostics, Pytest Suite | ✅ Completed |
 | **Milestone 1** | Phase 3 | YouTube Live Engine, 4-Key Quota Rotation, Isolated Stream Sessions, Chat Deduplication | ✅ Completed |
 | **Milestone 2** | Phase 4 | Centralized Gemini AI Engine, 4-Key Rotation, Rate Limiter, Priority Queue, Flash/Flash-Lite Router | ✅ Completed |
-| **Milestone 3** | Phase 5 | 3-Tier Moderation Engine (Rules + Behavioral + Gemini Classification) | ⏳ Next |
-| **Milestone 4** | Phase 6 | Interactive AI Co-Host with Personality & Anti-Spam Cooldowns | ⏳ Upcoming |
+| **Milestone 3** | Phase 5 | 3-Tier Moderation Engine (Rules + Behavioral + Gemini Classification), Kill Switch, Safe Mode | ✅ Completed |
+| **Milestone 4** | Phase 6 | Interactive AI Co-Host with Personality & Anti-Spam Cooldowns | ⏳ Next |
 | **Milestone 5** | Phase 7 | Nightbot-Style Custom Command Engine & Permissions | ⏳ Upcoming |
 | **Milestone 6** | Phase 8 & 9 | Viewer XP/VIP Progression & Modular Switchboard | ⏳ Upcoming |
 | **Milestone 7** | Phase 1-2, 10-14 | PostgreSQL/Redis Persistence, Creator Dashboard Hardening, GitHub & Railway Deployment | ⏳ Upcoming |

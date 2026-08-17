@@ -6,6 +6,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { BotStatusCard } from "@/components/dashboard/BotStatusCard";
 import { ComponentHealthGrid } from "@/components/dashboard/ComponentHealthGrid";
 import { StreamOverviewShell } from "@/components/dashboard/StreamOverviewShell";
+import { ModerationPanel } from "@/components/dashboard/ModerationPanel";
 import { QuickControls } from "@/components/dashboard/QuickControls";
 import { fetchActiveStreams, fetchSystemHealth } from "@/lib/api";
 import { StreamSessionSummary, SystemHealthData } from "@/lib/types";
@@ -61,23 +62,26 @@ export default function DashboardPage() {
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <span className="text-xs font-mono text-cyan-400 font-semibold tracking-wider uppercase">
-                Milestone 1 &bull; YouTube Engine Live
+                Milestone 3 &bull; AI Moderation Engine Live
               </span>
             </div>
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
               Creator Control Center
             </h1>
             <p className="text-xs sm:text-sm text-slate-400 max-w-3xl">
-              Real-time multi-stream orchestration hub for Goddess AI 2.0. Managing up to 4 concurrent
-              YouTube Live streams with quota-aware key rotation, isolated chat readers, and event bus dispatching.
+              Real-time multi-stream orchestration hub for Goddess AI 2.0. Layered 3-tier moderation
+              with deterministic fast rules, contextual Gemini AI analysis, and safety policy gates.
             </p>
           </div>
 
           {/* Core Bot Status Overview */}
           <BotStatusCard health={healthData} isLoading={isLoading} error={error} />
 
-          {/* Subsystem Health Grid (PostgreSQL, Redis, YouTube, Gemini) */}
+          {/* Subsystem Health Grid (PostgreSQL, Redis, YouTube, Gemini, Moderation) */}
           <ComponentHealthGrid components={healthData?.components} />
+
+          {/* 3-Tier AI Moderation Control Panel */}
+          <ModerationPanel />
 
           {/* 4 Stream Capacity Grid */}
           <StreamOverviewShell sessions={activeStreams} onRefresh={loadData} />
