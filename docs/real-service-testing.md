@@ -1,39 +1,43 @@
-# GODDESS AI 2.0 — Controlled Real-Service Testing Protocol
+# GODDESS AI 2.0 — Real-Service Testing Guide
 
-## 1. Safety Rules for Real External APIs
+## 1. Safety Principles & Opt-In Rules
 
-1. **Explicit Operator Opt-In Only**: Real external API tests are skipped during automated CI/CD runs unless explicit environment variables are provided.
-2. **Private/Unlisted Stream Requirement**: Never execute automated tests against live production or public streams. Always use an unlisted testing broadcast.
-3. **Zero Secret Persistence**: Never commit API keys or OAuth secrets into test files or version control.
+To prevent accidental quota depletion, API charges, or automated chatter on live public streams, all real-service tests are **FAIL-SAFE & DISABLED BY DEFAULT**.
 
----
+Every real-service test requires explicit environment opt-in flags:
 
-## 2. Running Controlled Real Gemini Tests
+| Flag | Target Service | Requirement / Guard |
+|---|---|---|
+| `RUN_REAL_POSTGRES_TEST=true` | PostgreSQL Database | Active `DATABASE_URL` |
+| `RUN_REAL_REDIS_TEST=true` | Redis Cache & PubSub | Active `REDIS_URL` |
+| `RUN_REAL_GEMINI_TEST=true` | Google Gemini AI | Valid `GEMINI_API_KEY_1` |
+| `RUN_REAL_YOUTUBE_TEST=true` | YouTube Data API v3 | `TEST_REAL_YOUTUBE_VIDEO_ID` & `YOUTUBE_API_KEY_1` |
+| `RUN_REAL_WEBSOCKET_TEST=true` | Live WebSocket Telemetry | Running backend server |
+| `RUN_RAILWAY_E2E_TEST=true` | Full 4-Stream Railway Stack | Production staging environment |
 
+## 2. Executing Real-Service Validation
+
+### 2.1 Gemini AI API Validation
 ```powershell
 $env:RUN_REAL_GEMINI_TEST="true"
-$env:GEMINI_API_KEY_1="AIzaSyYourRealGeminiKeyHere"
-pytest -v tests/test_real_integrations/test_gemini_integration_audit.py
+& "D:\GODDESS AI 2.0\backend\.venv\Scripts\pytest.exe" -v tests/test_real_service_e2e/test_real_gemini.py
 ```
 
-### Verification Points:
-- Successful round-trip text generation via `gemini-2.5-flash`.
-- Token accounting incremented in metrics.
-- Zero credential exposure in return models or logs.
-
----
-
-## 3. Running Controlled Real YouTube Tests
-
+### 2.2 YouTube Live Controlled Stream Validation
 ```powershell
 $env:RUN_REAL_YOUTUBE_TEST="true"
-$env:YOUTUBE_API_KEY_1="AIzaSyYourRealYouTubeKeyHere"
-$env:TEST_YOUTUBE_STREAM_ID="your_unlisted_stream_id"
-python backend/app/services/youtube/manual_test.py
+$env:TEST_REAL_YOUTUBE_VIDEO_ID="dQw4w9WgXcQ"
+& "D:\GODDESS AI 2.0\backend\.venv\Scripts\pytest.exe" -v tests/test_real_service_e2e/test_real_youtube.py
 ```
 
-### Verification Points:
-- Resolves active broadcast and extracts `activeLiveChatId`.
-- Reads incoming messages via polling reader.
-- Deduplication prevents duplicate message re-broadcasts.
-- Clean session teardown on manual termination (`Ctrl+C`).
+### 2.3 PostgreSQL & Redis Validation
+```powershell
+$env:RUN_REAL_POSTGRES_TEST="true"
+$env:RUN_REAL_REDIS_TEST="true"
+& "D:\GODDESS AI 2.0\backend\.venv\Scripts\pytest.exe" -v tests/test_real_service_e2e/test_real_postgres.py tests/test_real_service_e2e/test_real_redis.py
+```
+
+## 3. Guarantees Enforced During Real Tests
+1. **Never use production public streams**: Only designated unlisted/private test streams.
+2. **Never print secrets**: All logs, assertions, and test output mask credentials with safe aliases (`KEY-1`..`KEY-4`).
+3. **No Historical Replay**: Reconnects and unpauses only consume newly arriving messages.

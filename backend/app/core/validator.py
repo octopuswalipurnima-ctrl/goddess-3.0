@@ -4,7 +4,7 @@ Production Configuration Validator for GODDESS AI 2.0.
 Validates environment configuration, secrets, database/Redis URLs, CORS settings,
 and security parameters before the application accepts live production traffic.
 Enforces strict FAIL-CLOSED policy in production while permitting safe defaults in development.
-Never prints or returns sensitive credential values.
+Never prints, logs, or returns sensitive credential values.
 """
 
 from typing import Any, Dict, List, Tuple
@@ -31,6 +31,31 @@ class ConfigurationValidationError(RuntimeError):
     pass
 
 
+def get_safe_configuration_summary(settings: Settings) -> Dict[str, str]:
+    """
+    Generate safe diagnostic output for system logging and health reporting
+    with guaranteed ZERO raw secret values.
+    """
+    yt_count = len(settings.youtube_api_keys)
+    gemini_count = len(settings.gemini_api_keys)
+
+    sec_len = len(settings.secret_key.strip())
+    sec_valid = sec_len >= 32 and not any(p in settings.secret_key.lower() for p in INSECURE_PLACEHOLDER_SUBSTRINGS)
+
+    return {
+        "ENVIRONMENT": settings.environment.upper(),
+        "DATABASE": "CONFIGURED" if settings.is_database_configured else "NOT_CONFIGURED",
+        "REDIS": "CONFIGURED" if settings.is_redis_configured else "NOT_CONFIGURED",
+        "YOUTUBE": f"{yt_count} CREDENTIAL(S)" if yt_count > 0 else "NOT_CONFIGURED",
+        "GEMINI": f"{gemini_count} CREDENTIAL(S)" if gemini_count > 0 else "NOT_CONFIGURED",
+        "SECRET_KEY": "VALID (32+ chars)" if sec_valid else "INVALID_OR_WEAK",
+        "JWT_ALGORITHM": settings.jwt_algorithm,
+        "AUTH_MODE": "ENFORCED" if settings.auth_enabled else "DISABLED",
+        "RATE_LIMITING": "ENFORCED" if settings.rate_limit_enabled else "DISABLED",
+        "CORS_ORIGINS": f"{len(settings.cors_origins)} ORIGIN(S) DEFINED",
+    }
+
+
 def validate_production_configuration(settings: Settings) -> Tuple[bool, List[str], Dict[str, Any]]:
     """
     Validate system configuration against production security policies.
@@ -42,7 +67,6 @@ def validate_production_configuration(settings: Settings) -> Tuple[bool, List[st
         ConfigurationValidationError if environment is 'production' and any fatal issue is found.
     """
     issues: List[str] = []
-    warnings: List[str] = []
     diagnostics: Dict[str, Any] = {
         "environment": settings.environment,
         "debug_mode": settings.debug,
@@ -140,6 +164,7 @@ def validate_production_configuration(settings: Settings) -> Tuple[bool, List[st
     diagnostics["is_valid"] = is_valid
     diagnostics["issue_count"] = len(issues)
     diagnostics["issues"] = issues
+    diagnostics["safe_summary"] = get_safe_configuration_summary(settings)
 
     if not is_valid:
         if is_production:
