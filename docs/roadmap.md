@@ -153,3 +153,16 @@ The project is built in structured, test-driven milestones.
 - Failure and recovery matrix verification across PostgreSQL, Redis, Gemini, and YouTube outages
 - Zero secret leakage audit verifying complete absence of credentials in telemetry, logs, exceptions, and models
 - 339 passing backend tests (324 baseline + 15 new Milestone 12 tests) and Next.js frontend production build pass
+
+---
+
+### Milestone 13: Adaptive Co-Host Intelligence & Engagement Layer ✅
+- Stream-scoped `CoHostPersonalityManager` with tone, energy, humor, style, and anti-injection sanitization
+- `StreamAwarenessEngine` tracking current game/activity, category, and bounded moderation events ($\le 5$)
+- `CreatorKnowledgeManager` providing verified facts (rules, schedule, socials, faq, sponsor) with anti-hallucination fail-closed directives
+- `EngagementDecisionEngine` performing deterministic pre-Gemini filtering (direct mentions, questions, noise suppression, chatter probability, cooldowns)
+- Bounded `ResponseDeduplicator` with Jaccard lexical similarity checking ($\le 30$ responses) and 1x variation regeneration
+- Full pipeline integration under `ProductionSafetyController` (Emergency Stop & Safe Mode override)
+- Extended REST endpoints and Creator Control Center UI updates in `CoHostPanel.tsx`
+- 370 passing backend tests (339 baseline + 31 new Milestone 13 tests) and Next.js 15 production build pass
+

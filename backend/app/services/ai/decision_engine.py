@@ -204,6 +204,7 @@ class AIDecisionEngine:
 
         self.cohost_decisions += 1
         is_dry_run = config.dry_run or (cohost_resp.status.value == "DRY_RUN" if hasattr(cohost_resp.status, "value") else False)
+        priority = cohost_resp.engagement_decision.priority if (cohost_resp and cohost_resp.engagement_decision) else "NORMAL"
 
         return AIDecision(
             decision_id=decision_id,
@@ -215,7 +216,7 @@ class AIDecisionEngine:
             confidence=1.0,
             category="cohost_reply",
             reason=f"Co-Host reply generated ({'DRY_RUN' if is_dry_run else 'LIVE'})",
-            priority="NORMAL",
+            priority=priority,
             should_reply=not is_dry_run,
             reply_text=cohost_resp.response_text,
             model_used=cohost_resp.model,

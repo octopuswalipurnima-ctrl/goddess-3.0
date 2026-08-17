@@ -1,8 +1,7 @@
 """
 REST API Endpoints for AI Co-Host Engine in GODDESS AI 2.0.
-
-Provides endpoints to manage per-stream Co-Host configs, persona attributes,
-emergency controls, audit history, and dry-run test simulations.
+Provides stream-scoped endpoints for Co-Host configuration, personality,
+creator knowledge base, stream awareness, audit records, and dry-run simulations.
 """
 
 from typing import Any, Dict, List, Optional
@@ -16,8 +15,13 @@ from app.services.cohost import (
     CoHostMetrics,
     CoHostPersonality,
     CoHostResponse,
+    CreatorKnowledge,
+    StreamAwarenessData,
     cohost_audit_logger,
     cohost_manager,
+    cohost_personality_manager,
+    creator_knowledge_manager,
+    stream_awareness_engine,
 )
 from app.services.youtube.models import ChatMessage
 
@@ -40,9 +44,41 @@ class CoHostConfigUpdateRequest(BaseModel):
     context_window_size: Optional[int] = Field(default=None, ge=1, le=100)
     user_context_window_size: Optional[int] = Field(default=None, ge=1, le=20)
     minimum_confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    confidence_threshold: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    response_probability: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    max_regeneration_attempts: Optional[int] = Field(default=None, ge=0, le=3)
     max_response_length: Optional[int] = Field(default=None, ge=10, le=500)
     language: Optional[str] = None
     personality: Optional[CoHostPersonality] = None
+
+
+class PersonalityUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    tone: Optional[str] = None
+    style: Optional[str] = None
+    energy_level: Optional[str] = None
+    humor_level: Optional[str] = None
+    friendliness: Optional[str] = None
+    formality: Optional[str] = None
+    emoji_usage: Optional[str] = None
+    response_style: Optional[str] = None
+    language: Optional[str] = None
+    custom_instructions: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+class KnowledgeCreateRequest(BaseModel):
+    key: str = Field(..., min_length=1, max_length=100)
+    value: str = Field(..., min_length=1, max_length=1000)
+    category: str = Field(default="general")
+    enabled: bool = True
+
+
+class AwarenessUpdateRequest(BaseModel):
+    current_activity: Optional[str] = None
+    category: Optional[str] = None
+    stream_status: Optional[str] = None
+    custom_facts: Optional[Dict[str, str]] = None
 
 
 class CoHostTestRequest(BaseModel):
@@ -54,6 +90,8 @@ class CoHostTestRequest(BaseModel):
     is_chat_moderator: bool = False
     is_chat_sponsor: bool = False
 
+
+# --- Configuration Endpoints ---
 
 @router.get(
     "/config/{stream_id}",
@@ -78,6 +116,101 @@ async def update_stream_config(stream_id: str, payload: CoHostConfigUpdateReques
     return cohost_manager.update_config(stream_id, updates)
 
 
+# --- Personality Endpoints ---
+
+@router.get(
+    "/personality/{stream_id}",
+    response_model=CoHostPersonality,
+    dependencies=[Depends(require_permission("cohost.read"))],
+    summary="Get Stream Personality",
+)
+async def get_stream_personality(stream_id: str):
+    """Retrieve stream-specific Co-Host persona configuration."""
+    return cohost_personality_manager.get_personality(stream_id)
+
+
+@router.put(
+    "/personality/{stream_id}",
+    response_model=CoHostPersonality,
+    dependencies=[Depends(require_permission("cohost.configure"))],
+    summary="Update Stream Personality",
+)
+async def update_stream_personality(stream_id: str, payload: PersonalityUpdateRequest):
+    """Update stream-specific Co-Host persona (tone, energy, humor, style, custom instructions)."""
+    updates = payload.model_dump(exclude_unset=True)
+    return cohost_personality_manager.update_personality(stream_id, updates)
+
+
+# --- Knowledge Base Endpoints ---
+
+@router.get(
+    "/knowledge/{stream_id}",
+    response_model=List[CreatorKnowledge],
+    dependencies=[Depends(require_permission("cohost.read"))],
+    summary="Get Stream Knowledge Base",
+)
+async def get_stream_knowledge(stream_id: str):
+    """Fetch all creator-approved facts for a stream."""
+    return creator_knowledge_manager.get_knowledge_entries(stream_id)
+
+
+@router.post(
+    "/knowledge/{stream_id}",
+    response_model=CreatorKnowledge,
+    dependencies=[Depends(require_permission("cohost.configure"))],
+    summary="Add / Update Knowledge Fact",
+)
+async def set_stream_knowledge_fact(stream_id: str, payload: KnowledgeCreateRequest):
+    """Add or update a verified creator fact for a stream."""
+    return creator_knowledge_manager.set_fact(
+        stream_id=stream_id,
+        key=payload.key,
+        value=payload.value,
+        category=payload.category,
+        enabled=payload.enabled,
+    )
+
+
+@router.delete(
+    "/knowledge/{stream_id}/{key}",
+    dependencies=[Depends(require_permission("cohost.configure"))],
+    summary="Delete Knowledge Fact",
+)
+async def delete_stream_knowledge_fact(stream_id: str, key: str):
+    """Delete a creator fact from stream knowledge base."""
+    deleted = creator_knowledge_manager.delete_fact(stream_id, key)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Fact '{key}' not found.")
+    return {"status": "success", "message": f"Fact '{key}' deleted."}
+
+
+# --- Stream Awareness Endpoints ---
+
+@router.get(
+    "/awareness/{stream_id}",
+    response_model=StreamAwarenessData,
+    dependencies=[Depends(require_permission("cohost.read"))],
+    summary="Get Stream Awareness State",
+)
+async def get_stream_awareness(stream_id: str):
+    """Retrieve stream awareness metadata (current activity, status, custom facts)."""
+    return stream_awareness_engine.get_awareness(stream_id)
+
+
+@router.put(
+    "/awareness/{stream_id}",
+    response_model=StreamAwarenessData,
+    dependencies=[Depends(require_permission("cohost.configure"))],
+    summary="Update Stream Awareness",
+)
+async def update_stream_awareness(stream_id: str, payload: AwarenessUpdateRequest):
+    """Update stream awareness state (e.g. game being played, custom facts)."""
+    updates = payload.model_dump(exclude_unset=True)
+    return stream_awareness_engine.update_awareness(stream_id, updates)
+
+
+# --- Audit & Telemetry Endpoints ---
+
 @router.get(
     "/audit/{stream_id}",
     response_model=List[CoHostAuditRecord],
@@ -96,7 +229,7 @@ async def get_stream_audit_log(stream_id: str, limit: int = 50):
     summary="Get Co-Host Metrics",
 )
 async def get_cohost_stats():
-    """Fetch global Co-Host metrics (messages analyzed, intents, responses sent, dry-run, blocked)."""
+    """Fetch global Co-Host metrics (messages analyzed, intents, engagement decisions, dry-run, blocked)."""
     return cohost_manager.metrics
 
 

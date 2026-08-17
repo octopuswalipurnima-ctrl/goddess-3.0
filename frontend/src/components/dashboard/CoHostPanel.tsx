@@ -1,7 +1,19 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Bot, Sparkles, PlayCircle, PauseCircle, AlertOctagon, Sliders, MessageSquare, ShieldCheck, Zap } from "lucide-react";
+import {
+  Bot,
+  Sparkles,
+  PlayCircle,
+  AlertOctagon,
+  Sliders,
+  ShieldCheck,
+  Zap,
+  BookOpen,
+  Eye,
+  Settings2,
+  RefreshCw,
+} from "lucide-react";
 
 export function CoHostPanel() {
   const [enabled, setEnabled] = useState(false);
@@ -9,16 +21,25 @@ export function CoHostPanel() {
   const [emergencyStop, setEmergencyStop] = useState(false);
   const [personalityName, setPersonalityName] = useState("Goddess");
   const [tone, setTone] = useState("friendly");
+  const [energyLevel, setEnergyLevel] = useState("medium");
+  const [humorLevel, setHumorLevel] = useState("moderate");
+  const [responseStyle, setResponseStyle] = useState("conversational");
+  const [responseProbability, setResponseProbability] = useState(0.85);
+  const [confidenceThreshold, setConfidenceThreshold] = useState(0.70);
 
   const [stats, setStats] = useState({
     messages_analyzed: 0,
     intents_detected: 0,
+    engagement_decisions: 0,
+    messages_ignored: 0,
     responses_requested: 0,
     responses_generated: 0,
     responses_sent: 0,
     responses_dry_run: 0,
     responses_blocked: 0,
     responses_failed: 0,
+    no_response_count: 0,
+    gemini_fallbacks: 0,
   });
 
   const fetchStats = async () => {
@@ -33,7 +54,7 @@ export function CoHostPanel() {
 
   useEffect(() => {
     fetchStats();
-    const interval = setInterval(fetchStats, 4000);
+    const interval = setInterval(fetchStats, 3000);
     return () => clearInterval(interval);
   }, []);
 
@@ -49,14 +70,14 @@ export function CoHostPanel() {
           <div className="flex items-center gap-2">
             <Bot className="w-4 h-4 text-purple-400" />
             <h2 className="text-sm font-bold text-slate-200">
-              Interactive AI Co-Host Engine
+              Adaptive AI Co-Host & Engagement Engine
             </h2>
             <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-950 text-purple-400 border border-purple-800/40">
-              Milestone 4 Live
+              Milestone 13 Adaptive
             </span>
           </div>
           <p className="text-[11px] text-slate-400 mt-0.5">
-            Rule-first intent detection, 20-message stream context, personality framing, and anti-spam cooldowns.
+            Stream-aware engagement decisions, verified creator knowledge, anti-repetition protection, and bounded multi-stream isolation.
           </p>
         </div>
 
@@ -107,8 +128,8 @@ export function CoHostPanel() {
           <p className="text-lg font-bold text-white font-mono mt-0.5">{stats.messages_analyzed}</p>
         </div>
         <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
-          <span className="text-[10px] text-slate-400 font-mono">Intents</span>
-          <p className="text-lg font-bold text-cyan-400 font-mono mt-0.5">{stats.intents_detected}</p>
+          <span className="text-[10px] text-slate-400 font-mono">Decisions</span>
+          <p className="text-lg font-bold text-cyan-400 font-mono mt-0.5">{stats.engagement_decisions || stats.intents_detected}</p>
         </div>
         <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
           <span className="text-[10px] text-slate-400 font-mono">Generated</span>
@@ -123,23 +144,42 @@ export function CoHostPanel() {
           <p className="text-lg font-bold text-emerald-400 font-mono mt-0.5">{stats.responses_sent}</p>
         </div>
         <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
-          <span className="text-[10px] text-slate-400 font-mono">Blocked</span>
-          <p className="text-lg font-bold text-amber-400 font-mono mt-0.5">{stats.responses_blocked}</p>
+          <span className="text-[10px] text-slate-400 font-mono">Blocked / Silent</span>
+          <p className="text-lg font-bold text-amber-400 font-mono mt-0.5">{(stats.responses_blocked || 0) + (stats.messages_ignored || 0)}</p>
+        </div>
+      </div>
+
+      {/* Intelligence Settings Grid */}
+      <div className="p-3.5 rounded-xl bg-slate-950/40 border border-slate-800/60 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+        <div className="flex items-center gap-2">
+          <Zap className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+          <span className="text-slate-400">Persona:</span>
+          <strong className="text-slate-200">{personalityName} ({tone}, {energyLevel})</strong>
+        </div>
+        <div className="flex items-center gap-2">
+          <Eye className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+          <span className="text-slate-400">Probability:</span>
+          <strong className="text-slate-200">{Math.round(responseProbability * 100)}% (Filtered)</strong>
+        </div>
+        <div className="flex items-center gap-2">
+          <BookOpen className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+          <span className="text-slate-400">Confidence Gate:</span>
+          <strong className="text-slate-200">&ge; {Math.round(confidenceThreshold * 100)}%</strong>
         </div>
       </div>
 
       {/* Footer Info */}
       <div className="p-3 rounded-xl bg-slate-950/40 border border-slate-800/50 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-400">
         <div className="flex items-center gap-2">
-          <Zap className="w-3.5 h-3.5 text-purple-400" />
-          <span>Active Persona: <strong className="text-slate-200">{personalityName}</strong> ({tone}, max 200 chars)</span>
+          <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+          <span>Safety Authority: <strong>ProductionSafetyController</strong> &bull; Max 200 chars &bull; Zero Hallucinations</span>
         </div>
         <div className="flex items-center gap-3 font-mono text-[10px] text-slate-500">
-          <span>Priority: NORMAL</span>
+          <span>Global CD: 5s</span>
           <span>&bull;</span>
-          <span>Global Cooldown: 5s</span>
+          <span>User CD: 30s</span>
           <span>&bull;</span>
-          <span>Per-User: 30s</span>
+          <span>Max Dedup Window: 30</span>
         </div>
       </div>
     </div>
