@@ -288,6 +288,16 @@ class ProductionSafetyController:
             },
         )
 
+    async def reset_to_clean_state(self) -> None:
+        """Reset all global and per-stream safety states back to NORMAL for clean testing."""
+        self._global_state = SafetyState.NORMAL
+        self._stream_states.clear()
+        self._emergency_reasons.clear()
+        self._emergency_triggered_by.clear()
+        self._emergency_timestamps.clear()
+        self._safe_mode_reasons.clear()
+        self._blocked_action_count = 0
+
     def set_shutting_down(self) -> None:
         """Marks controller state as SHUTTING_DOWN."""
         self._global_state = SafetyState.SHUTTING_DOWN

@@ -111,15 +111,19 @@ class AIDecisionEngine:
 
         # 2. Moderation Pipeline Gate (Tier 1 -> Tier 2 -> Tier 3)
         mod_decision = await self.mod_mgr.process_message(message)
-        if mod_decision and mod_decision.action != ModerationAction.NONE:
+        mod_action = getattr(mod_decision, "recommended_action", getattr(mod_decision, "action", ModerationAction.NONE)) if mod_decision else ModerationAction.NONE
+        if mod_decision and mod_action != ModerationAction.NONE:
             self.moderation_decisions += 1
             action_type_map = {
                 ModerationAction.DELETE: AIActionType.MODERATE_DELETE,
                 ModerationAction.TIMEOUT: AIActionType.MODERATE_TIMEOUT,
-                ModerationAction.BAN: AIActionType.MODERATE_BAN,
+                ModerationAction.BLOCK: AIActionType.MODERATE_BAN,
                 ModerationAction.LOG: AIActionType.MODERATE_LOG,
+                ModerationAction.WARN: AIActionType.MODERATE_LOG,
+                ModerationAction.SLOW_MODE: AIActionType.MODERATE_LOG,
+                ModerationAction.ESCALATE_TO_MODERATOR: AIActionType.MODERATE_LOG,
             }
-            ai_action = action_type_map.get(mod_decision.action, AIActionType.MODERATE_LOG)
+            ai_action = action_type_map.get(mod_action, AIActionType.MODERATE_LOG)
 
             return AIDecision(
                 decision_id=decision_id,

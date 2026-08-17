@@ -141,4 +141,15 @@ The project is built in structured, test-driven milestones.
 - AI Moderation 2.0 with 100% operational Tier-1 regex rules during complete Gemini outages
 - Priority request queue (`HIGH` = Moderation, `NORMAL` = Co-Host) and primary `gemini-2.5-flash` $\to$ fallback `gemini-2.5-flash-lite` routing
 - Comprehensive real-service integration audit across YouTube, Gemini, PostgreSQL, Redis, and WebSocket
-- 324 passing backend tests (296 baseline + 28 new Milestone 11 tests) with zero hardcoded credentials
+- 324 passing backend tests with zero hardcoded credentials
+
+---
+
+### Milestone 12: Production Deployment, Real-Service E2E Validation & Operational Hardening ✅
+- Railway deployment configuration (`railway.json`, `Procfile`) with atomic migration execution on container start
+- Hardened production configuration validator enforcing fail-closed security gating
+- Comprehensive End-to-End processing pipeline tests from incoming chat &rarr; EventBus &rarr; moderation &rarr; AI decision &rarr; policy &rarr; YouTube writer &rarr; WebSocket
+- Bidirectional 4-stream isolation verification preventing cross-stream contamination
+- Failure and recovery matrix verification across PostgreSQL, Redis, Gemini, and YouTube outages
+- Zero secret leakage audit verifying complete absence of credentials in telemetry, logs, exceptions, and models
+- 339 passing backend tests (324 baseline + 15 new Milestone 12 tests) and Next.js frontend production build pass
