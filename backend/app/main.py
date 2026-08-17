@@ -45,14 +45,9 @@ async def lifespan(app: FastAPI):
     setup_logging(settings.log_level)
     logger.info(f"Starting {settings.app_name} v{settings.app_version} in [{settings.environment}] mode...")
     
-    # 2. Production Security Validation
-    if settings.environment == "production":
-        if settings.auth_dev_bypass:
-            logger.critical("FATAL: AUTH_DEV_BYPASS cannot be enabled in production environment!")
-            raise RuntimeError("AUTH_DEV_BYPASS is strictly prohibited in production mode.")
-        if "insecure" in settings.secret_key.lower() or len(settings.secret_key) < 32:
-            logger.critical("FATAL: Weak or default SECRET_KEY detected in production environment!")
-            raise RuntimeError("Insecure SECRET_KEY in production. Must be at least 32 cryptographically random chars.")
+    # 2. Production Security & Configuration Validation
+    from app.core.validator import validate_production_configuration
+    validate_production_configuration(settings)
 
     # 4. Database Initialization & Ping
     db_status = await ping_database()
