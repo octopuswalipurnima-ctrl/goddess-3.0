@@ -4,11 +4,10 @@
 
 import { DashboardOverview } from "../types";
 import { getAuthHeaders } from "./auth";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api/v1";
+import { getApiBaseUrl } from "./client";
 
 export async function fetchDashboardOverview(): Promise<DashboardOverview> {
-  const res = await fetch(`${API_BASE}/dashboard/overview`, {
+  const res = await fetch(`${getApiBaseUrl()}/dashboard/overview`, {
     cache: "no-store",
     headers: getAuthHeaders(),
   });

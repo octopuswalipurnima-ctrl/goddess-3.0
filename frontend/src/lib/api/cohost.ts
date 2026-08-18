@@ -4,11 +4,10 @@
 
 import { CoHostAuditItem, CoHostMetrics } from "../types";
 import { getAuthHeaders } from "./auth";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api/v1";
+import { getApiBaseUrl } from "./client";
 
 export async function fetchCoHostStats(): Promise<CoHostMetrics> {
-  const res = await fetch(`${API_BASE}/cohost/stats`, {
+  const res = await fetch(`${getApiBaseUrl()}/cohost/stats`, {
     cache: "no-store",
     headers: getAuthHeaders(),
   });
@@ -19,7 +18,7 @@ export async function fetchCoHostStats(): Promise<CoHostMetrics> {
 }
 
 export async function fetchCoHostAudit(streamId: string): Promise<CoHostAuditItem[]> {
-  const res = await fetch(`${API_BASE}/cohost/audit/${streamId}`, {
+  const res = await fetch(`${getApiBaseUrl()}/cohost/audit/${streamId}`, {
     cache: "no-store",
     headers: getAuthHeaders(),
   });
@@ -30,7 +29,7 @@ export async function fetchCoHostAudit(streamId: string): Promise<CoHostAuditIte
 }
 
 export async function updateCoHostConfig(streamId: string, config: any): Promise<any> {
-  const res = await fetch(`${API_BASE}/cohost/config/${streamId}`, {
+  const res = await fetch(`${getApiBaseUrl()}/cohost/config/${streamId}`, {
     method: "PUT",
     headers: getAuthHeaders(),
     body: JSON.stringify(config),

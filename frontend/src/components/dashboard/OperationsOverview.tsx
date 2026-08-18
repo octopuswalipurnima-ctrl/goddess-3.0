@@ -15,6 +15,8 @@ import {
   AlertTriangle,
   XCircle,
 } from "lucide-react";
+import { getApiBaseUrl } from "@/lib/api/client";
+import { getAuthHeaders } from "@/lib/api/auth";
 
 export function OperationsOverview() {
   const [overview, setOverview] = useState<any>(null);
@@ -24,12 +26,16 @@ export function OperationsOverview() {
   const fetchOverview = async () => {
     try {
       setIsLoading(true);
-      const res = await fetch("http://127.0.0.1:8000/api/v1/operations/overview");
+      const res = await fetch(`${getApiBaseUrl()}/operations/overview`, {
+        headers: getAuthHeaders(),
+      });
       if (res.ok) {
         const data = await res.json();
         setOverview(data);
       }
-      const healthRes = await fetch("http://127.0.0.1:8000/api/v1/health/detailed");
+      const healthRes = await fetch(`${getApiBaseUrl()}/health/detailed`, {
+        headers: getAuthHeaders(),
+      });
       if (healthRes.ok) {
         const hData = await healthRes.json();
         setInfra(hData.infrastructure);

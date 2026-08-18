@@ -2,7 +2,7 @@
  * Authentication API Client Layer for GODDESS AI 2.0.
  */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api/v1";
+import { getApiBaseUrl } from "./client";
 
 export interface UserSchema {
   id: number;
@@ -52,7 +52,7 @@ export function getAuthHeaders(): HeadersInit {
 }
 
 export async function login(username: string, password: string): Promise<LoginResponse> {
-  const res = await fetch(`${API_BASE}/auth/login`, {
+  const res = await fetch(`${getApiBaseUrl()}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password }),
@@ -69,7 +69,7 @@ export async function login(username: string, password: string): Promise<LoginRe
 }
 
 export async function fetchCurrentUser(): Promise<UserSchema> {
-  const res = await fetch(`${API_BASE}/auth/me`, {
+  const res = await fetch(`${getApiBaseUrl()}/auth/me`, {
     headers: getAuthHeaders(),
   });
 
@@ -83,7 +83,7 @@ export async function fetchCurrentUser(): Promise<UserSchema> {
 
 export async function logout(): Promise<void> {
   try {
-    await fetch(`${API_BASE}/auth/logout`, {
+    await fetch(`${getApiBaseUrl()}/auth/logout`, {
       method: "POST",
       headers: getAuthHeaders(),
     });

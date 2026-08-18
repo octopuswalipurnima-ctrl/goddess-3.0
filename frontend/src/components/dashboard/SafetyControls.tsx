@@ -2,6 +2,8 @@
 
 import React, { useState } from "react";
 import { AlertOctagon, Shield, ShieldAlert, CheckCircle, RefreshCw } from "lucide-react";
+import { getApiBaseUrl } from "@/lib/api/client";
+import { getAuthHeaders } from "@/lib/api/auth";
 
 export function SafetyControls() {
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
@@ -23,9 +25,9 @@ export function SafetyControls() {
       else if (actionType === "GLOBAL_SAFE_MODE") endpoint = "safe-mode/enable";
       else if (actionType === "CLEAR_SAFE_MODE") endpoint = "safe-mode/disable";
 
-      const res = await fetch(`http://127.0.0.1:8000/api/v1/operations/${endpoint}`, {
+      const res = await fetch(`${getApiBaseUrl()}/operations/${endpoint}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(),
       });
       if (res.ok) {
         setStatusMsg(`Executed ${actionType} successfully.`);

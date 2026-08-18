@@ -2,6 +2,7 @@
  * API Client Barrel Exports
  */
 
+export * from "./client";
 export * from "./health";
 export * from "./streams";
 export * from "./moderation";

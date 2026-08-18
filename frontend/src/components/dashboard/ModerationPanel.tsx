@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import { Shield, ShieldAlert, ShieldCheck, Zap, AlertTriangle, CheckCircle, XCircle, Sliders, PlayCircle, RotateCcw } from "lucide-react";
+import { getApiBaseUrl } from "@/lib/api/client";
+import { getAuthHeaders } from "@/lib/api/auth";
 
 export function ModerationPanel() {
   const [killSwitch, setKillSwitch] = useState(false);
@@ -21,7 +23,9 @@ export function ModerationPanel() {
 
   const fetchModerationStats = async () => {
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/v1/moderation/stats");
+      const res = await fetch(`${getApiBaseUrl()}/moderation/stats`, {
+        headers: getAuthHeaders(),
+      });
       if (res.ok) {
         const data = await res.json();
         setStats(data);
@@ -52,8 +56,9 @@ export function ModerationPanel() {
   const handleResetCircuitBreaker = async () => {
     setCircuitBreakerTripped(false);
     try {
-      await fetch("http://127.0.0.1:8000/api/v1/moderation/circuit-breaker/reset/default_stream", {
+      await fetch(`${getApiBaseUrl()}/moderation/circuit-breaker/reset/default_stream`, {
         method: "POST",
+        headers: getAuthHeaders(),
       });
       fetchModerationStats();
     } catch (e) {}

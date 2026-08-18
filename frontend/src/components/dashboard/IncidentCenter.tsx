@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import { AlertTriangle, AlertOctagon, CheckCircle2, RefreshCw, ShieldAlert, Activity } from "lucide-react";
+import { getApiBaseUrl } from "@/lib/api/client";
+import { getAuthHeaders } from "@/lib/api/auth";
 
 interface IncidentItem {
   id: string;
@@ -20,7 +22,9 @@ export function IncidentCenter() {
   const fetchIncidents = async () => {
     try {
       setIsLoading(true);
-      const res = await fetch("http://127.0.0.1:8000/api/v1/operations/events?limit=20");
+      const res = await fetch(`${getApiBaseUrl()}/operations/events?limit=20`, {
+        headers: getAuthHeaders(),
+      });
       if (res.ok) {
         const events = await res.json();
         const formatted: IncidentItem[] = events

@@ -2,13 +2,17 @@
 
 import React, { useState, useEffect } from "react";
 import { Key, ShieldCheck, AlertCircle, RefreshCw } from "lucide-react";
+import { getApiBaseUrl } from "@/lib/api/client";
+import { getAuthHeaders } from "@/lib/api/auth";
 
 export function ProviderHealthPanel() {
   const [providers, setProviders] = useState<any>(null);
 
   const fetchProviders = async () => {
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/v1/operations/providers");
+      const res = await fetch(`${getApiBaseUrl()}/operations/providers`, {
+        headers: getAuthHeaders(),
+      });
       if (res.ok) {
         const data = await res.json();
         setProviders(data);

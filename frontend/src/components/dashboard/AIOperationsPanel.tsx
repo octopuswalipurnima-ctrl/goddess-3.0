@@ -2,13 +2,17 @@
 
 import React, { useState, useEffect } from "react";
 import { Cpu, Zap, Clock, AlertTriangle, Layers, ShieldCheck, CheckCircle2 } from "lucide-react";
+import { getApiBaseUrl } from "@/lib/api/client";
+import { getAuthHeaders } from "@/lib/api/auth";
 
 export function AIOperationsPanel() {
   const [aiData, setAiData] = useState<any>(null);
 
   const fetchAI = async () => {
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/v1/operations/ai");
+      const res = await fetch(`${getApiBaseUrl()}/operations/ai`, {
+        headers: getAuthHeaders(),
+      });
       if (res.ok) {
         const data = await res.json();
         setAiData(data);

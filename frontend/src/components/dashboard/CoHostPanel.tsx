@@ -14,6 +14,8 @@ import {
   Settings2,
   RefreshCw,
 } from "lucide-react";
+import { getApiBaseUrl } from "@/lib/api/client";
+import { getAuthHeaders } from "@/lib/api/auth";
 
 export function CoHostPanel() {
   const [enabled, setEnabled] = useState(false);
@@ -44,7 +46,9 @@ export function CoHostPanel() {
 
   const fetchStats = async () => {
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/v1/cohost/stats");
+      const res = await fetch(`${getApiBaseUrl()}/cohost/stats`, {
+        headers: getAuthHeaders(),
+      });
       if (res.ok) {
         const data = await res.json();
         setStats(data);

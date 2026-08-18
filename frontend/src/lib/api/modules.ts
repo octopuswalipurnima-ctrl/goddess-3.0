@@ -4,11 +4,10 @@
 
 import { ModuleSummaryItem } from "../types";
 import { getAuthHeaders } from "./auth";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api/v1";
+import { getApiBaseUrl } from "./client";
 
 export async function fetchModules(): Promise<ModuleSummaryItem[]> {
-  const res = await fetch(`${API_BASE}/modules`, {
+  const res = await fetch(`${getApiBaseUrl()}/modules`, {
     cache: "no-store",
     headers: getAuthHeaders(),
   });
@@ -19,7 +18,7 @@ export async function fetchModules(): Promise<ModuleSummaryItem[]> {
 }
 
 export async function enableModule(moduleId: string): Promise<any> {
-  const res = await fetch(`${API_BASE}/modules/${moduleId}/enable`, {
+  const res = await fetch(`${getApiBaseUrl()}/modules/${moduleId}/enable`, {
     method: "POST",
     headers: getAuthHeaders(),
   });
@@ -30,7 +29,7 @@ export async function enableModule(moduleId: string): Promise<any> {
 }
 
 export async function disableModule(moduleId: string): Promise<any> {
-  const res = await fetch(`${API_BASE}/modules/${moduleId}/disable`, {
+  const res = await fetch(`${getApiBaseUrl()}/modules/${moduleId}/disable`, {
     method: "POST",
     headers: getAuthHeaders(),
   });
@@ -41,7 +40,7 @@ export async function disableModule(moduleId: string): Promise<any> {
 }
 
 export async function startModule(moduleId: string): Promise<any> {
-  const res = await fetch(`${API_BASE}/modules/${moduleId}/start`, {
+  const res = await fetch(`${getApiBaseUrl()}/modules/${moduleId}/start`, {
     method: "POST",
     headers: getAuthHeaders(),
   });
@@ -52,7 +51,7 @@ export async function startModule(moduleId: string): Promise<any> {
 }
 
 export async function stopModule(moduleId: string): Promise<any> {
-  const res = await fetch(`${API_BASE}/modules/${moduleId}/stop`, {
+  const res = await fetch(`${getApiBaseUrl()}/modules/${moduleId}/stop`, {
     method: "POST",
     headers: getAuthHeaders(),
   });
@@ -62,14 +61,16 @@ export async function stopModule(moduleId: string): Promise<any> {
   return res.json();
 }
 
-export async function updateStreamModuleConfig(moduleId: string, streamId: string, enabled: boolean, settings: any = {}): Promise<any> {
-  const res = await fetch(`${API_BASE}/modules/${moduleId}/config/${streamId}`, {
+export async function updateModuleConfig(moduleId: string, streamId: string, config: any): Promise<any> {
+  const res = await fetch(`${getApiBaseUrl()}/modules/${moduleId}/config/${streamId}`, {
     method: "PUT",
     headers: getAuthHeaders(),
-    body: JSON.stringify({ enabled, settings }),
+    body: JSON.stringify(config),
   });
   if (!res.ok) {
-    throw new Error(`Failed to update config for module ${moduleId} on ${streamId}: ${res.statusText}`);
+    throw new Error(`Failed to update module config for ${moduleId}: ${res.statusText}`);
   }
   return res.json();
 }
+
+export const updateStreamModuleConfig = updateModuleConfig;

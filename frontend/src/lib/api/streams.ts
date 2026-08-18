@@ -4,11 +4,10 @@
 
 import { StreamSessionSummary, StreamSupervisorSummary } from "../types";
 import { getAuthHeaders } from "./auth";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api/v1";
+import { getApiBaseUrl } from "./client";
 
 export async function fetchActiveStreams(): Promise<StreamSessionSummary[]> {
-  const res = await fetch(`${API_BASE}/streams`, {
+  const res = await fetch(`${getApiBaseUrl()}/streams`, {
     cache: "no-store",
     headers: getAuthHeaders(),
   });
@@ -19,7 +18,7 @@ export async function fetchActiveStreams(): Promise<StreamSessionSummary[]> {
 }
 
 export async function connectStream(streamId: string, title?: string): Promise<any> {
-  const res = await fetch(`${API_BASE}/streams`, {
+  const res = await fetch(`${getApiBaseUrl()}/streams`, {
     method: "POST",
     headers: getAuthHeaders(),
     body: JSON.stringify({ stream_id: streamId, auto_start: true }),
@@ -31,7 +30,7 @@ export async function connectStream(streamId: string, title?: string): Promise<a
 }
 
 export async function fetchSupervisedStreams(): Promise<StreamSupervisorSummary[]> {
-  const res = await fetch(`${API_BASE}/streams/supervised`, {
+  const res = await fetch(`${getApiBaseUrl()}/streams/supervised`, {
     cache: "no-store",
     headers: getAuthHeaders(),
   });
@@ -42,7 +41,7 @@ export async function fetchSupervisedStreams(): Promise<StreamSupervisorSummary[
 }
 
 export async function attachSupervisedStream(streamId: string, channelId?: string): Promise<StreamSupervisorSummary> {
-  const res = await fetch(`${API_BASE}/streams/attach`, {
+  const res = await fetch(`${getApiBaseUrl()}/streams/attach`, {
     method: "POST",
     headers: getAuthHeaders(),
     body: JSON.stringify({ stream_id: streamId, channel_id: channelId, auto_start: true }),
@@ -54,7 +53,7 @@ export async function attachSupervisedStream(streamId: string, channelId?: strin
 }
 
 export async function detachSupervisedStream(streamId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/streams/${streamId}/detach`, {
+  const res = await fetch(`${getApiBaseUrl()}/streams/${streamId}/detach`, {
     method: "POST",
     headers: getAuthHeaders(),
   });
@@ -64,7 +63,7 @@ export async function detachSupervisedStream(streamId: string): Promise<void> {
 }
 
 export async function reconnectSupervisedStream(streamId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/streams/${streamId}/reconnect`, {
+  const res = await fetch(`${getApiBaseUrl()}/streams/${streamId}/reconnect`, {
     method: "POST",
     headers: getAuthHeaders(),
   });
@@ -74,7 +73,7 @@ export async function reconnectSupervisedStream(streamId: string): Promise<void>
 }
 
 export async function stopStream(streamId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/streams/${streamId}/stop`, {
+  const res = await fetch(`${getApiBaseUrl()}/streams/${streamId}/stop`, {
     method: "POST",
     headers: getAuthHeaders(),
   });
@@ -84,7 +83,7 @@ export async function stopStream(streamId: string): Promise<void> {
 }
 
 export async function triggerStreamEmergencyStop(streamId: string, reason = "Operator emergency stop"): Promise<void> {
-  const res = await fetch(`${API_BASE}/streams/${streamId}/emergency-stop`, {
+  const res = await fetch(`${getApiBaseUrl()}/streams/${streamId}/emergency-stop`, {
     method: "POST",
     headers: getAuthHeaders(),
     body: JSON.stringify({ reason }),
@@ -95,7 +94,7 @@ export async function triggerStreamEmergencyStop(streamId: string, reason = "Ope
 }
 
 export async function clearStreamEmergencyStop(streamId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/streams/${streamId}/clear-emergency-stop`, {
+  const res = await fetch(`${getApiBaseUrl()}/streams/${streamId}/clear-emergency-stop`, {
     method: "POST",
     headers: getAuthHeaders(),
   });
@@ -105,7 +104,7 @@ export async function clearStreamEmergencyStop(streamId: string): Promise<void> 
 }
 
 export async function enableStreamSafeMode(streamId: string, reason = "Operator enabled safe mode"): Promise<void> {
-  const res = await fetch(`${API_BASE}/streams/${streamId}/safe-mode`, {
+  const res = await fetch(`${getApiBaseUrl()}/streams/${streamId}/safe-mode`, {
     method: "POST",
     headers: getAuthHeaders(),
     body: JSON.stringify({ reason }),
@@ -116,7 +115,7 @@ export async function enableStreamSafeMode(streamId: string, reason = "Operator 
 }
 
 export async function disableStreamSafeMode(streamId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/streams/${streamId}/clear-safe-mode`, {
+  const res = await fetch(`${getApiBaseUrl()}/streams/${streamId}/clear-safe-mode`, {
     method: "POST",
     headers: getAuthHeaders(),
   });
@@ -126,7 +125,7 @@ export async function disableStreamSafeMode(streamId: string): Promise<void> {
 }
 
 export async function triggerGlobalEmergencyStop(reason = "Operator global emergency stop"): Promise<void> {
-  const res = await fetch(`${API_BASE}/streams/global-emergency-stop`, {
+  const res = await fetch(`${getApiBaseUrl()}/streams/global-emergency-stop`, {
     method: "POST",
     headers: getAuthHeaders(),
     body: JSON.stringify({ reason }),
@@ -137,7 +136,7 @@ export async function triggerGlobalEmergencyStop(reason = "Operator global emerg
 }
 
 export async function clearGlobalEmergencyStop(): Promise<void> {
-  const res = await fetch(`${API_BASE}/streams/clear-global-emergency-stop`, {
+  const res = await fetch(`${getApiBaseUrl()}/streams/clear-global-emergency-stop`, {
     method: "POST",
     headers: getAuthHeaders(),
   });

@@ -13,6 +13,8 @@ import {
   AlertOctagon,
   Eye,
 } from "lucide-react";
+import { getApiBaseUrl } from "@/lib/api/client";
+import { getAuthHeaders } from "@/lib/api/auth";
 
 interface StreamOpsProps {
   streamId: string;
@@ -29,9 +31,9 @@ export function StreamOperationsCard({ streamId, data, onRefresh }: StreamOpsPro
   const executeControl = async (endpoint: string, method: string = "POST", body?: any) => {
     try {
       setIsProcessing(true);
-      await fetch(`http://127.0.0.1:8000/api/v1/operations/streams/${streamId}/${endpoint}`, {
+      await fetch(`${getApiBaseUrl()}/operations/streams/${streamId}/${endpoint}`, {
         method,
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(),
         body: body ? JSON.stringify(body) : undefined,
       });
       if (onRefresh) onRefresh();
