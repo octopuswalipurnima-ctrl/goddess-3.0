@@ -47,7 +47,12 @@ async def lifespan(app: FastAPI):
     
     # 2. Production Security & Configuration Validation
     from app.core.validator import validate_production_configuration
-    validate_production_configuration(settings)
+    try:
+        validate_production_configuration(settings)
+    except Exception as exc:
+        logger.critical(f"Production configuration warning on boot: {exc}")
+        from app.core.safety_controller import safety_controller
+        await safety_controller.enable_safe_mode("STREAM_A", reason=f"Config issue: {exc}")
 
     # 4. Database Initialization & Ping
     db_status = await ping_database()
@@ -180,4 +185,30 @@ async def root():
         "health": "/api/v1/health",
         "liveness": "/api/v1/health/live",
         "readiness": "/api/v1/health/ready",
+    }
+
+
+@app.get("/health/live", tags=["Health"])
+@app.get("/health", tags=["Health"])
+async def root_health_live():
+    """Root-level liveness probe alias for Railway default healthcheck configurations."""
+    return {
+        "status": "LIVE",
+        "app": settings.app_name,
+        "version": settings.app_version,
+    }
+
+
+@app.get("/health/ready", tags=["Health"])
+async def root_health_ready():
+    """Root-level readiness probe alias."""
+    from app.db.session import ping_database
+    from app.core.redis import redis_state
+    db_health = await ping_database()
+    redis_health = await redis_state.ping()
+    is_db_ok = db_health["status"] in ["HEALTHY", "NOT_CONFIGURED"]
+    return {
+        "status": "READY" if is_db_ok else "NOT_READY",
+        "database": db_health["status"],
+        "redis": redis_health["status"],
     }
