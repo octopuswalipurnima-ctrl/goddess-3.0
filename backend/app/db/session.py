@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.pool import NullPool, QueuePool
+from sqlalchemy.pool import AsyncAdaptedQueuePool, NullPool
 
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -58,8 +58,8 @@ def get_engine(database_url: Optional[str] = None) -> Optional[AsyncEngine]:
             # SQLite uses NullPool or StaticPool for in-memory / file tests
             engine_kwargs["poolclass"] = NullPool
         else:
-            # PostgreSQL uses QueuePool with configured pool sizing
-            engine_kwargs["poolclass"] = QueuePool
+            # PostgreSQL uses AsyncAdaptedQueuePool with configured pool sizing
+            engine_kwargs["poolclass"] = AsyncAdaptedQueuePool
             engine_kwargs["pool_size"] = settings.db_pool_size
             engine_kwargs["max_overflow"] = settings.db_max_overflow
             engine_kwargs["pool_timeout"] = settings.db_pool_timeout
