@@ -174,9 +174,16 @@ app.add_middleware(
 app.include_router(api_router, prefix="/api/v1")
 
 
+from fastapi.responses import FileResponse
+from fastapi import Request
+
 @app.get("/", tags=["Root"])
-async def root():
-    """Root endpoint welcoming the caller and pointing to documentation."""
+async def root(request: Request):
+    """Root endpoint welcoming the caller or serving Next.js frontend."""
+    index_path = os.path.join(os.path.dirname(__file__), "static", "index.html")
+    accept = request.headers.get("accept", "")
+    if os.path.exists(index_path) and ("text/html" in accept or "*/*" in accept):
+        return FileResponse(index_path)
     return {
         "app": settings.app_name,
         "version": settings.app_version,
@@ -212,3 +219,13 @@ async def root_health_ready():
         "database": db_health["status"],
         "redis": redis_health["status"],
     }
+
+
+# Mount static frontend dashboard if available
+import os
+from fastapi.staticfiles import StaticFiles
+
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.exists(static_dir):
+    app.mount("/", StaticFiles(directory=static_dir, html=True), name="static_frontend")
+
