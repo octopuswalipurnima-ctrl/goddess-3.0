@@ -30,7 +30,7 @@ target_metadata = Base.metadata
 
 def get_db_url() -> str:
     """Retrieve database URL from settings or override."""
-    raw_url = config.get_main_option("sqlalchemy.url") or settings.database_url or "sqlite+aiosqlite:///:memory:"
+    raw_url = config.get_main_option("sqlalchemy.url") or settings.effective_database_url or settings.database_url or "sqlite+aiosqlite:///:memory:"
     return normalize_database_url(raw_url) or "sqlite+aiosqlite:///:memory:"
 
 

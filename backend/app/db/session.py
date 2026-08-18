@@ -43,7 +43,7 @@ def normalize_database_url(url: Optional[str]) -> Optional[str]:
 def get_engine(database_url: Optional[str] = None) -> Optional[AsyncEngine]:
     """Get or create singleton AsyncEngine with connection pooling and timeouts."""
     global _engine
-    url = normalize_database_url(database_url or settings.database_url)
+    url = normalize_database_url(database_url or settings.effective_database_url or settings.database_url)
     if not url:
         return None
 

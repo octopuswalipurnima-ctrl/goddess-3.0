@@ -35,7 +35,16 @@ class Settings(BaseSettings):
 
     # Database & Redis Settings
     database_url: Optional[str] = Field(default=None, description="PostgreSQL async connection URL")
+    database_public_url: Optional[str] = Field(default=None, description="PostgreSQL public connection URL")
+    database_private_url: Optional[str] = Field(default=None, description="PostgreSQL private connection URL")
+    pghost: Optional[str] = Field(default=None, description="PostgreSQL host")
+    pgport: Optional[int] = Field(default=None, description="PostgreSQL port")
+    pguser: Optional[str] = Field(default=None, description="PostgreSQL user")
+    pgpassword: Optional[str] = Field(default=None, description="PostgreSQL password")
+    pgdatabase: Optional[str] = Field(default=None, description="PostgreSQL database name")
     redis_url: Optional[str] = Field(default=None, description="Redis connection URL")
+    redis_public_url: Optional[str] = Field(default=None, description="Redis public connection URL")
+    redis_private_url: Optional[str] = Field(default=None, description="Redis private connection URL")
     db_pool_size: int = Field(default=5, ge=1, description="Database connection pool size")
     db_max_overflow: int = Field(default=10, ge=0, description="Database connection pool max overflow")
     db_pool_timeout: float = Field(default=30.0, ge=1.0, description="Database connection acquisition timeout")
@@ -119,14 +128,39 @@ class Settings(BaseSettings):
         return [k for k in keys if k and k.strip()]
 
     @property
+    def effective_database_url(self) -> Optional[str]:
+        """Resolve database URL from standard DATABASE_URL, private/public URLs, or PG* parameters."""
+        if self.database_url and self.database_url.strip():
+            return self.database_url.strip()
+        if self.database_private_url and self.database_private_url.strip():
+            return self.database_private_url.strip()
+        if self.database_public_url and self.database_public_url.strip():
+            return self.database_public_url.strip()
+        if self.pguser and self.pgpassword and self.pghost and self.pgdatabase:
+            port = self.pgport or 5432
+            return f"postgresql://{self.pguser}:{self.pgpassword}@{self.pghost}:{port}/{self.pgdatabase}"
+        return None
+
+    @property
+    def effective_redis_url(self) -> Optional[str]:
+        """Resolve Redis URL from standard REDIS_URL or private/public URLs."""
+        if self.redis_url and self.redis_url.strip():
+            return self.redis_url.strip()
+        if self.redis_private_url and self.redis_private_url.strip():
+            return self.redis_private_url.strip()
+        if self.redis_public_url and self.redis_public_url.strip():
+            return self.redis_public_url.strip()
+        return None
+
+    @property
     def is_database_configured(self) -> bool:
         """Check if a valid database URL is provided."""
-        return bool(self.database_url and self.database_url.strip())
+        return bool(self.effective_database_url)
 
     @property
     def is_redis_configured(self) -> bool:
         """Check if a valid Redis URL is provided."""
-        return bool(self.redis_url and self.redis_url.strip())
+        return bool(self.effective_redis_url)
 
     @property
     def is_youtube_configured(self) -> bool:

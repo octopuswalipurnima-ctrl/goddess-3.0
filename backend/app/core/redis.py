@@ -93,7 +93,7 @@ class RedisStateManager:
     """Centralized manager for transient distributed state with automatic fail-safe fallback."""
 
     def __init__(self, redis_url: Optional[str] = None):
-        self.redis_url = redis_url or settings.redis_url
+        self.redis_url = redis_url or settings.effective_redis_url or settings.redis_url
         self._client: Optional[aioredis.Redis] = None
         self._fallback = InMemoryFallbackState()
         self._is_connected = False
@@ -104,13 +104,14 @@ class RedisStateManager:
 
     async def initialize(self) -> None:
         """Initialize Redis connection if REDIS_URL is configured."""
-        if not self.redis_url:
+        url = self.redis_url or settings.effective_redis_url or settings.redis_url
+        if not url:
             logger.info("REDIS_URL not configured. Operating in safe local in-memory mode.")
             return
 
         try:
             self._client = aioredis.from_url(
-                self.redis_url,
+                url,
                 encoding="utf-8",
                 decode_responses=True,
                 socket_timeout=2.0,
