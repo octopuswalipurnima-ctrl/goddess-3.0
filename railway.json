@@ -4,7 +4,8 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "cd backend && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1",
+    "preDeployCommand": "cd backend && python -m alembic upgrade head",
+    "startCommand": "cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1",
     "healthcheckPath": "/api/v1/health/live",
     "healthcheckTimeout": 120,
     "restartPolicyType": "ON_FAILURE",
