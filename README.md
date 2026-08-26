@@ -1,158 +1,198 @@
-# GODDESS AI 2.0 🌟
-
-> **Next-Generation YouTube Live Multi-Stream Orchestration, Real-Time Moderation, AI Co-Host, Pluggable Extension Platform & Production Persistence**
-
----
-
-## 📖 Overview
-
-**GODDESS AI 2.0** is an enterprise-grade, asynchronous live streaming management platform built from scratch. It is engineered to monitor and orchestrate up to **4 simultaneous YouTube live streams** (handling 800+ aggregate concurrent viewers), provide **multi-tiered AI moderation**, power an interactive **Gemini AI Co-Host**, run **pluggable extension modules** (Chat Commands, Viewer Welcome, Live Stats, Viewer Interaction), maintain an asynchronous **PostgreSQL & Redis persistence and reliability layer**, and offer a unified **Creator Control Center** with real-time WebSocket telemetry and emergency fail-safes.
+# GODDESS AI 3.0 — HONNEY
+> Fresh, Production-Grade YouTube Live AI Co-Host, Adaptive Hindi/Hinglish Moderation Engine, 1v1 Matchmaking Queue, Virtual Store & Economy System.
 
 ---
 
-## 🏛️ Architecture Highlights
+## 1. Overview & Vision
 
-- **Local-First Development**: Built, tested, and verified locally before deployment.
-- **YouTube Live & Chat Engine**: Multi-key rotation (up to 4 keys), quota-aware failover, message deduplication, and isolated stream sessions.
-- **Gemini AI Engine**: 4-key rotation, token-bucket rate limiter, priority request queue (`HIGH`/`NORMAL`/`LOW`), model router (`gemini-2.5-flash` with `gemini-2.5-flash-lite` fallback), and empty-response classification.
-- **3-Tier AI Moderation Engine**: High-speed deterministic rules + contextual Gemini AI semantic analysis (`priority=HIGH`) + Action Policy safety gates (kill switch, safe mode, owner/mod exemptions, per-user cooldowns, idempotency).
-- **Interactive AI Co-Host Engine**: Rule-first intent detection, bounded short-term memory (20 stream msgs, 5 user msgs), personality framing, Gemini AI (`priority=NORMAL`), max 200-char length capping, anti-spam cooldowns (5s global, 30s user), and DRY_RUN mode.
-- **Modular Plugin / Extension System**: Standardized lifecycle (`DISCOVER` &rarr; `REGISTER` &rarr; `LOAD` &rarr; `ENABLE` &rarr; `RUNNING`), dependency graphs, failure isolation, and built-in modules (`commands`, `welcome`, `stream_stats`, `viewer_interaction`).
-- **Security & RBAC Layer**: PBKDF2 password hashing, HS256 JWT tokens, 4-tier RBAC (`OWNER`, `ADMIN`, `OPERATOR`, `VIEWER`), security response headers, request IDs, rate limiting, and zero credential leakage.
-- **Production Persistence & Reliability Layer**: PostgreSQL async (SQLAlchemy 2.x + asyncpg) source of truth, Alembic migrations, typed repositories, transient Redis state manager with safe in-memory fallback, restart recovery, and bounded audit retention.
-- **Creator Control Center**: Next.js 15 + TypeScript + Tailwind CSS with dark slate theme, 4-stream live overview, focused stream controls, moderation feed, co-host switchboard, module manager, AI/YouTube/Persistence diagnostics, bounded activity timeline, emergency confirmation dialogs, and creator authentication.
-- **Honest Status Diagnostics**: Component states clearly distinguish `HEALTHY`, `DEGRADED`, `NOT_CONFIGURED`, `UNAVAILABLE`, and `ERROR` across `/health`, `/health/live`, and `/health/ready`.
+**Goddess AI 3.0** is an autonomous personal AI co-host and moderation system for YouTube Live streaming. Controlled directly through **YouTube Live Chat**, it requires **no web frontend** or complicated dashboard.
+
+### Core Capabilities:
+- 🌸 **Honney AI Co-Host**: Context-aware AI persona fluent in Hindi, Hinglish, and English gaming banter, activated on the `"honney"` wake word with 10-message conversational memory.
+- 🛡️ **Adaptive Hindi/Hinglish Moderation**: Contextual understanding of friendly banter vs toxicity with automated high-confidence action (≥90%), Human-in-the-Loop (HITL) review queue (40–89%), and RAG-lite adaptive moderation memory.
+- 🎮 **1v1 Waiting Queue**: Fully atomic, FIFO live stream matchmaking queue with race-safe `!next1v1` selection.
+- 🪙 **Virtual Economy & Store**: XP & coin generation with 60s message cooldowns, configurable leveling formula, virtual store administration (`!addst`, `!editst`, `!chps`, `!delst`), and atomic double-spend protected purchases (`!buy`).
+- ⚡ **Nightbot-Style Custom Commands**: Creator/moderator custom commands (`!adduk`, `!deluk`, `!Edituk`, `!reptuk`) with reserved command protection.
+- 🔄 **API Key Rotation & Persistent OAuth**: 4-key Gemini pool and 3-key YouTube API pool with automated health tracking, exponential cooldown, and jittered rotation. Single persistent OAuth token manager with concurrency locks.
+- 📡 **Multi-Channel & WebSub**: Live stream discovery via WebSub Atom XML push feeds and periodic discovery safety net.
 
 ---
 
-## 📂 Project Structure
+## 2. Directory Structure
 
-```text
-Goddess-AI-2.0/
-│
-├── backend/                  # Asynchronous FastAPI backend service
-│   ├── alembic/             # Alembic database migrations & environment
-│   ├── app/
-│   │   ├── api/v1/          # REST & WebSocket API routers (Auth, Health, Streams, Moderation, Co-Host, Modules, Dashboard, WS)
-│   │   ├── auth/            # Security & Auth subsystem (RBAC, JWT, Hashing, Middleware, Dependencies)
-│   │   ├── core/            # Config, Logging, Event Bus, Redis State Manager, Rate Limiter
-│   │   ├── db/              # SQLAlchemy 2.0 async base, session, models, repositories, recovery, retention
-│   │   ├── services/        # Subsystem services (YouTube, Gemini, Moderation, Co-Host)
-│   │   ├── modules/         # Modular Extension System (Commands, Welcome, Stats, Interaction)
-│   │   └── main.py          # FastAPI application entrypoint with lifespan manager
-│   ├── tests/               # Pytest automated test suites (182 unit, security, & integration tests)
-│   ├── requirements.txt     # Python dependency lockfile
-│   ├── alembic.ini          # Alembic configuration
-│   └── pyproject.toml       # Python packaging and test configuration
-│
-├── frontend/                 # Next.js 15 Creator Control Center
-│   ├── src/
-│   │   ├── app/             # Next.js App Router (Layout & Pages)
-│   │   ├── components/      # Modular UI components (Auth, Health, 4-Stream, Controls, Moderation, Co-Host, Modules, Diagnostics, Timeline, Emergency)
-│   │   └── lib/             # Centralized WebSocket manager, typed API clients, and Auth context
-│   ├── package.json
-│   └── tailwind.config.ts
-│
-├── docs/                     # Comprehensive architecture and setup guides
-│   ├── architecture.md      # Architectural design & event bus specs
-│   ├── security.md          # Security architecture, zero-leakage policies & headers
-│   ├── authentication.md    # RBAC matrix, token lifecycle & endpoints
-│   ├── deployment.md        # Railway & cloud production deployment guide
-│   ├── operations.md        # Operations runbook & emergency procedures
-│   ├── reliability.md       # Failover, recovery & resilience guide
-│   ├── persistence.md       # PostgreSQL, Redis, recovery, and retention guide
-│   ├── youtube.md           # YouTube engine & credential rotation guide
-│   ├── gemini.md            # Gemini AI engine & model router guide
-│   ├── moderation.md        # 3-tier moderation engine & safety gates guide
-│   ├── cohost.md            # Interactive AI co-host & personality guide
-│   ├── modules.md           # Pluggable module system guide
-│   ├── dashboard.md         # Creator control center guide
-│   ├── setup.md             # Beginner local setup instructions
-│   └── roadmap.md           # Master development roadmap
-│
-├── scripts/                  # Developer helper scripts
-│   ├── dev.ps1              # One-click start for backend + frontend
-│   └── test.ps1             # One-click test runner
-│
-├── .env.example              # Environment variables template
-├── railway.json              # Railway production deployment configuration
-├── .gitignore                # Git ignore rules protecting secrets & builds
-└── README.md                 # Project root documentation
+```
+goddess-ai-3/
+├── app/
+│   ├── __init__.py
+│   ├── main.py           # FastAPI lifecycle, health check, WebSub GET/POST
+│   ├── config.py         # Pydantic Settings & channels.json loader
+│   ├── database.py       # Async SQLAlchemy 2.x engine & sessionmaker
+│   ├── models.py         # 13 ORM models with indices & unique constraints
+│   ├── youtube.py        # 3-key pool, OAuth manager, API read/write methods
+│   ├── gemini.py         # 4-key pool, structured Hindi/Hinglish moderation, Honney
+│   ├── moderation.py     # Normalization, RAG-lite memory, review resolution
+│   ├── commands.py       # Registry, permission matrix, 1v1 queue, settings
+│   ├── economy.py        # XP, leveling formula, store, atomic purchases
+│   ├── workers.py        # StreamManager, ChatWorker pipeline, WebSub manager
+│   └── utils.py          # Structured logging, secret masking, normalization
+├── tests/
+│   ├── test_youtube.py
+│   ├── test_gemini.py
+│   ├── test_moderation.py
+│   ├── test_commands.py
+│   ├── test_economy.py
+│   ├── test_queue.py
+│   ├── test_websub.py
+│   └── test_concurrency_and_integration.py
+├── alembic/
+│   ├── env.py
+│   ├── script.py.mako
+│   └── versions/
+│       └── 001_initial_schema.py
+├── channels.json         # Configured YouTube channels
+├── requirements.txt      # Production dependencies
+├── .env.example          # Environment variables template
+├── Dockerfile            # Container definition
+├── railway.json          # Railway deployment configuration
+├── alembic.ini           # Migration settings
+└── README.md
 ```
 
 ---
 
-## 🚀 Quick Start Guide (Local Development)
+## 3. Official YouTube Chat Command Reference
 
-### 1. Prerequisites
-- **Python**: Version 3.11 or 3.12
-- **Node.js**: Version 20+ LTS
-- **Git**: Installed locally
+### Custom Commands (Moderator / Broadcaster)
+| Command | Usage | Description |
+| :--- | :--- | :--- |
+| `!adduk` | `!adduk <name> <response>` | Create a custom command (e.g. `!adduk discord Join discord.gg/xyz`) |
+| `!deluk` | `!deluk <name>` | Delete an existing custom command |
+| `!Edituk` | `!Edituk <name> <response>` | Update an existing custom command's response |
+| `!reptuk` | `!reptuk <name>` | Test/repeat the saved response of a custom command |
 
-### 2. Environment Setup
-Copy the environment template:
-```powershell
-cp .env.example .env
-```
-*(Optional: Configure `DATABASE_URL` and `REDIS_URL` for production PostgreSQL/Redis instances; all automated tests run 100% offline with in-memory SQLite and local fail-safe state)*.
-
-### 3. Run Everything with One Command
-Run the helper script from PowerShell:
-```powershell
-.\scripts\dev.ps1
-```
-
-Or run services individually:
-
-#### Backend (Port 8000)
-```powershell
-cd backend
-.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
-```
-- Interactive API Docs: [http://localhost:8000/docs](http://localhost:8000/docs)
-- Dashboard Overview API: [http://localhost:8000/api/v1/dashboard/overview](http://localhost:8000/api/v1/dashboard/overview)
-- Health Diagnostics: [http://localhost:8000/api/v1/health](http://localhost:8000/api/v1/health)
-- Liveness Probe: [http://localhost:8000/api/v1/health/live](http://localhost:8000/api/v1/health/live)
-- Readiness Probe: [http://localhost:8000/api/v1/health/ready](http://localhost:8000/api/v1/health/ready)
-
-#### Frontend Dashboard (Port 3000)
-```powershell
-cd frontend
-npm run dev
-```
-- Creator Control Center: [http://localhost:3000](http://localhost:3000)
-
----
-
-## 🧪 Running Automated Tests
-
-To execute the full Pytest test suite (429 tests across all components):
-```powershell
-.\scripts\test.ps1
-```
-
----
-
-## 🗺️ Milestone Roadmap
-
-| Milestone | Phase | Description | Status |
+### 1v1 Waiting Queue
+| Command | Perm | Usage | Description |
 | :--- | :--- | :--- | :--- |
-| **Milestone 0** | Phase 0 | Local Foundation, FastAPI Core, Next.js Dashboard Shell, Honest Health Diagnostics, Pytest Suite | ✅ Completed |
-| **Milestone 1** | Phase 3 | YouTube Live Engine, 4-Key Quota Rotation, Isolated Stream Sessions, Chat Deduplication | ✅ Completed |
-| **Milestone 2** | Phase 4 | Centralized Gemini AI Engine, 4-Key Rotation, Rate Limiter, Priority Queue, Flash/Flash-Lite Router | ✅ Completed |
-| **Milestone 3** | Phase 5 | 3-Tier Moderation Engine (Rules + Behavioral + Gemini Classification), Kill Switch, Safe Mode | ✅ Completed |
-| **Milestone 4** | Phase 6 | Interactive AI Co-Host Engine (Intents, 20-Msg Context, Persona, Cooldowns, Normal Priority) | ✅ Completed |
-| **Milestone 5** | Phase 7 | Modular Module System (BaseModule, Registry, Manager, Commands, Welcome, Stats, Interaction) | ✅ Completed |
-| **Milestone 6** | Phase 8 | Creator Control Center & Real-Time Dashboard (4-Stream Overview, Stream Controls, Diagnostics) | ✅ Completed |
-| **Milestone 7** | Phase 9 | Production Persistence & Reliability Layer (PostgreSQL, Repositories, Redis, Recovery, Retention) | ✅ Completed |
-| **Milestone 8** | Phase 10 | Production Security, Authentication, Deployment & End-to-End Reliability | ✅ Completed |
-| **Milestone 9** | Phase 11 | Production Readiness, Multi-Stream Load Testing & Reliability Engine (218 tests) | ✅ Completed |
-| **Milestone 10A** | Phase 12 | YouTube & Gemini Multi-Key Credential & Quota Management (239 tests) | ✅ Completed |
-| **Milestone 10B** | Phase 13 | Real YouTube Live Integration & Reconnection Engine (267 tests) | ✅ Completed |
-| **Milestone 10C** | Phase 14 | Production Live Operations, Stream Supervisor & Creator Control Center (296 tests) | ✅ Completed |
-| **Milestone 11** | Phase 15 | Production AI Intelligence Layer & Real-Service Integration Audit (324 tests) | ✅ Completed |
-| **Milestone 12** | Phase 16 | Production Deployment, Real-Service E2E Validation & Operational Hardening (339 tests) | ✅ Completed |
-| **Milestone 13** | Phase 17 | Adaptive Co-Host Intelligence & Engagement Layer (370 tests) | ✅ Completed |
-| **Milestone 14** | Phase 18 | Production Creator Control Center, Operational Observability & Real-Service Validation (396 tests) | ✅ Completed |
-| **Milestone 15** | Phase 19 | Production Real-Service E2E Validation, Railway Deployment Verification & Final Hardening (404 tests) | ✅ Completed |
-| **Milestone 16** | Phase 20 | Production Launch, Autonomous Reliability, Creator Experience & Final Release Hardening (429 tests) | ✅ Completed |
+| `!join` | Viewer | `!join` | Join the active live stream's 1v1 queue (FIFO, duplicate-protected) |
+| `!next1v1` | Mod+ | `!next1v1` | Atomically select and announce the next player in the queue |
+
+### Economy & Virtual Store
+| Command | Perm | Usage | Description |
+| :--- | :--- | :--- | :--- |
+| `!coins` | Viewer | `!coins` | View your coin balance, XP, and level |
+| `!rank` | Viewer | `!rank` | Display your rank profile |
+| `!store` | Viewer | `!store` | View items available for purchase |
+| `!buy` | Viewer | `!buy <item>` | Atomically purchase a store item with coins |
+| `!addst` | Mod+ | `!addst <item> <price> <desc>` | Add a new item to the store |
+| `!delst` | Mod+ | `!delst <item>` | Remove an item from the store |
+| `!editst` | Mod+ | `!editst <item> <desc>` | Update item description |
+| `!chps` | Mod+ | `!chps <item> <price>` | Change item price |
+
+### Moderation & HITL
+| Command | Perm | Usage | Description |
+| :--- | :--- | :--- | :--- |
+| `!delmsg` | Mod+ | `!delmsg @username` | Delete the latest live chat message from user |
+| `!tout` | Mod+ | `!tout @username [seconds]` | Timeout user in live chat (default 300s) |
+| `!hid` | Broadcaster | `!hid @username` | Permanently hide user from channel |
+| `!mod allow` | Mod+ | `!mod allow <review_id>` | Mark review ALLOWED & save to moderation memory |
+| `!mod ban` | Mod+ | `!mod ban <review_id>` | Mark review BANNED & save to moderation memory |
+| `!mod ignore`| Mod+ | `!mod ignore <review_id>` | Mark review IGNORED |
+
+### Chat Settings & System
+| Command | Perm | Usage | Description |
+| :--- | :--- | :--- | :--- |
+| `!ghelp` | Viewer | `!ghelp` | Dynamic command help listing |
+| `!settings` | Mod+ | `!settings` | Display current channel settings |
+| `!setai` | Mod+ | `!setai on\|off` | Toggle AI moderation |
+| `!setcohost` | Mod+ | `!setcohost on\|off` | Toggle Honney AI Co-Host |
+| `!setmod` | Mod+ | `!setmod relaxed\|balanced\|strict` | Set moderation strictness level |
+| `!setpersonality` | Mod+ | `!setpersonality <style>` | Adjust Honney's personality |
+| `!setxp` | Mod+ | `!setxp <amount>` | Set XP awarded per chat message |
+| `!setcoins` | Mod+ | `!setcoins <amount>` | Set coins awarded per chat message |
+| `!setcooldown` | Mod+ | `!setcooldown <seconds>` | Set reward cooldown window |
+
+---
+
+## 4. Setup & Configuration
+
+### Prerequisites
+- Python 3.12+
+- PostgreSQL database
+- Google Cloud Project with YouTube Data API v3 enabled
+- Google Gemini API Keys (4 keys recommended)
+
+### Environment Variables (`.env`)
+```bash
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/goddess_ai
+PORT=8000
+
+# 4 Gemini API Keys
+GEMINI_API_KEY_1=your_gemini_key_1
+GEMINI_API_KEY_2=your_gemini_key_2
+GEMINI_API_KEY_3=your_gemini_key_3
+GEMINI_API_KEY_4=your_gemini_key_4
+
+# 3 YouTube Data API Keys (Read-only)
+YOUTUBE_API_KEY_1=your_youtube_key_1
+YOUTUBE_API_KEY_2=your_youtube_key_2
+YOUTUBE_API_KEY_3=your_youtube_key_3
+
+# Google OAuth 2.0 (For authenticated write operations)
+GOOGLE_CLIENT_ID=your_client_id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your_client_secret
+GOOGLE_REDIRECT_URI=http://localhost:8000/oauth2callback
+
+YOUTUBE_OAUTH_TOKEN=your_access_token
+YOUTUBE_OAUTH_REFRESH_TOKEN=your_refresh_token
+
+# WebSub Stream Detection
+WEBSUB_CALLBACK_URL=https://your-domain.up.railway.app/websub/youtube
+WEBSUB_SECRET=your_websub_secret
+
+# Optional Discord Alerts for HITL
+DISCORD_MOD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+```
+
+### Channels Configuration (`channels.json`)
+```json
+[
+  {
+    "channel_id": "UCxxxxxxxxxxxxxxxxxxxxxx",
+    "enabled": true,
+    "name": "Main Channel"
+  }
+]
+```
+
+---
+
+## 5. Local Development
+
+```bash
+# 1. Install dependencies
+pip install -r requirements.txt
+
+# 2. Run database migrations
+alembic upgrade head
+
+# 3. Run test suite
+pytest -v
+
+# 4. Lint and typecheck
+ruff check .
+ruff format --check .
+mypy app
+
+# 5. Start the application
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+---
+
+## 6. Railway Deployment
+
+1. Connect your repository to Railway.
+2. Add a PostgreSQL database service in Railway.
+3. Configure environment variables in Railway project settings.
+4. Deploy — Railway will use `Dockerfile` and `railway.json` to automatically run `alembic upgrade head` and launch the bot.
+5. Set `WEBSUB_CALLBACK_URL` to `https://${RAILWAY_PUBLIC_DOMAIN}/websub/youtube`.

@@ -1,14 +1,14 @@
 {
   "$schema": "https://railway.app/railway.schema.json",
   "build": {
-    "builder": "NIXPACKS"
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "preDeployCommand": "cd backend && python -m alembic upgrade head || true",
-    "startCommand": "cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1",
-    "healthcheckPath": "/api/v1/health/live",
-    "healthcheckTimeout": 120,
+    "startCommand": "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}",
     "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 5
+    "restartPolicyMaxRetries": 10,
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 30
   }
 }
