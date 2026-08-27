@@ -201,6 +201,15 @@ async def test_database_connectivity_failure_sanitized():
 
 
 @pytest.mark.asyncio
+async def test_health_live_endpoint():
+    """Test that /health/live returns immediate HTTP 200 without database calls."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        resp = await ac.get("/health/live")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "live"}
+
+
+@pytest.mark.asyncio
 async def test_health_endpoint_database_status():
     """Test that /health returns database status without exposing credentials."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:

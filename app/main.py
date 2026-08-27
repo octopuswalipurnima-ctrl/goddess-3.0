@@ -1,5 +1,6 @@
 """FastAPI main application entrypoint, lifecycle management, health checks, and WebSub endpoints."""
 
+import asyncio
 import hashlib
 import hmac
 from collections.abc import AsyncGenerator
@@ -36,20 +37,61 @@ gemini_client: GeminiClient | None = None
 outbound_queue: OutboundMessageQueue | None = None
 stream_manager: StreamManager | None = None
 websub_manager: WebSubManager | None = None
+_background_tasks: list[asyncio.Task[Any]] = []
+
+
+async def _reconcile_channels() -> None:
+    """Non-blocking background channel reconciliation and discovery."""
+    try:
+        logger.info("STARTUP: channel reconciliation beginning")
+        async with get_session() as session:
+            channels_config = settings.load_channels()
+            for ch_cfg in channels_config:
+                stmt = select(Channel).where(Channel.channel_id == ch_cfg.channel_id)
+                res = await session.execute(stmt)
+                ch = res.scalar_one_or_none()
+                if not ch:
+                    ch = Channel(
+                        channel_id=ch_cfg.channel_id,
+                        name=ch_cfg.name,
+                        enabled=ch_cfg.enabled,
+                    )
+                    session.add(ch)
+                    await session.flush()
+                    # Create default settings
+                    s = ChannelSettings(channel_id=ch_cfg.channel_id)
+                    session.add(s)
+                else:
+                    ch.name = ch_cfg.name
+                    ch.enabled = ch_cfg.enabled
+
+        logger.info(f"STARTUP: channel reconciliation completed ({len(channels_config)} channels synced)")
+
+        # Start stream manager and WebSub manager
+        if stream_manager:
+            stream_manager.start()
+        if websub_manager:
+            websub_manager.start()
+        logger.info("STARTUP: background stream discovery and WebSub active")
+    except Exception as e:
+        logger.error(f"Error during background channel reconciliation: {e}", exc_info=True)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application startup and graceful shutdown lifecycle handler."""
-    global youtube_client, gemini_client, outbound_queue, stream_manager, websub_manager
+    global youtube_client, gemini_client, outbound_queue, stream_manager, websub_manager, _background_tasks
 
     setup_logging()
-    logger.info("Starting Goddess AI 3.0 (Honney)...")
+    logger.info("STARTUP: process beginning")
     settings.log_summary()
 
     # 1. Database initialization and connectivity verification
+    logger.info("STARTUP: database initialization beginning")
     try:
         init_engine()
+        logger.info("STARTUP: database initialization completed")
+        logger.info("STARTUP: schema validation beginning")
         db_ok, db_diag = await verify_database_connection(timeout_seconds=5.0)
         if not db_ok:
             logger.error(f"DATABASE STARTUP VERIFICATION FAILED: {db_diag}")
@@ -58,35 +100,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     f"Production database connection failure: {db_diag}. "
                     "Verify DATABASE_URL is set in your Railway service variables."
                 )
-        else:
-            logger.info("Database startup verification succeeded.")
+        logger.info("STARTUP: schema validation completed")
     except Exception as e:
-        logger.error(f"Fatal error during database startup: {e}")
+        logger.error(f"FATAL: Database startup error: {e}", exc_info=True)
         raise
 
-    # 2. Sync configured channels to DB
-    async with get_session() as session:
-        channels_config = settings.load_channels()
-        for ch_cfg in channels_config:
-            stmt = select(Channel).where(Channel.channel_id == ch_cfg.channel_id)
-            res = await session.execute(stmt)
-            ch = res.scalar_one_or_none()
-            if not ch:
-                ch = Channel(
-                    channel_id=ch_cfg.channel_id,
-                    name=ch_cfg.name,
-                    enabled=ch_cfg.enabled,
-                )
-                session.add(ch)
-                await session.flush()
-                # Create default settings
-                s = ChannelSettings(channel_id=ch_cfg.channel_id)
-                session.add(s)
-            else:
-                ch.name = ch_cfg.name
-                ch.enabled = ch_cfg.enabled
+    # 2. Moderation and AI Co-Host rules
+    logger.info("STARTUP: moderation rules loading")
 
-    # 3. YouTube Client & Key Pool
+    # 3. Addons & Key Pools Initialization
+    logger.info("STARTUP: addons initialization beginning")
     yt_pool = YouTubeKeyPool(settings.get_youtube_keys())
     oauth_mgr = OAuthManager(
         client_id=settings.GOOGLE_CLIENT_ID,
@@ -96,32 +119,38 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     youtube_client = YouTubeClient(key_pool=yt_pool, oauth_manager=oauth_mgr)
 
-    # 4. Gemini Client & Key Pool
     gemini_pool = GeminiKeyPool(settings.get_gemini_keys())
     gemini_client = GeminiClient(key_pool=gemini_pool)
 
-    # 5. Outbound Queue & Workers
     outbound_queue = OutboundMessageQueue(youtube_client=youtube_client)
+    outbound_queue.start()
+
     stream_manager = StreamManager(
         youtube_client=youtube_client,
         gemini_client=gemini_client,
         outbound_queue=outbound_queue,
     )
     websub_manager = WebSubManager()
+    logger.info("STARTUP: addons initialization completed")
 
-    # Start background managers
-    stream_manager.start()
-    websub_manager.start()
+    # 4. Schedule Non-blocking Channel Reconciliation & Stream Polling
+    logger.info("STARTUP: channel reconciliation scheduled")
+    task = asyncio.create_task(_reconcile_channels())
+    _background_tasks.append(task)
 
-    logger.info("Goddess AI 3.0 initialized successfully and running.")
+    logger.info("STARTUP: application ready")
     yield
 
     # Shutdown
     logger.info("Shutting down Goddess AI 3.0...")
+    for t in _background_tasks:
+        t.cancel()
     if websub_manager:
         await websub_manager.stop()
     if stream_manager:
         await stream_manager.stop()
+    if outbound_queue:
+        await outbound_queue.stop()
     if youtube_client:
         await youtube_client.close()
     if gemini_client:
@@ -149,9 +178,15 @@ async def root() -> dict[str, str]:
     }
 
 
+@app.get("/health/live")
+async def health_live() -> dict[str, str]:
+    """Ultra-lightweight platform liveness endpoint (no database/network calls)."""
+    return {"status": "live"}
+
+
 @app.get("/health")
 async def health_check() -> dict[str, Any]:
-    """Basic process health and safe database status check."""
+    """Detailed process health and database connectivity report."""
     is_configured = bool(settings.get_database_url_safe())
     db_ok, _ = await verify_database_connection(timeout_seconds=2.0)
     return {

@@ -54,6 +54,15 @@ async def test_websub_get_verification_endpoint():
 
 
 @pytest.mark.asyncio
+async def test_health_live_endpoint():
+    """Test ultra-lightweight GET /health/live endpoint."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        resp = await ac.get("/health/live")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "live"}
+
+
+@pytest.mark.asyncio
 async def test_health_endpoint():
     """Test GET /health endpoint."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:

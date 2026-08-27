@@ -21,5 +21,5 @@ COPY . .
 # Expose default port
 EXPOSE 8000
 
-# Default command: run migrations with unbuffered Python and launch Uvicorn
-CMD ["sh", "-c", "python -u -m alembic upgrade head && python -u -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Default command: run migrations and start Uvicorn
+CMD ["python", "-u", "start.py"]
