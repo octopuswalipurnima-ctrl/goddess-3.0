@@ -42,6 +42,25 @@ def test_database_url_normalization():
     assert normalize_database_url(None) == ""
 
 
+def test_database_url_query_parameter_preservation():
+    """Test that query parameters such as sslmode, application_name are preserved intact."""
+    url = (
+        "postgres://user:pass@host.railway.internal:5432/railway?sslmode=require&application_name=goddess_ai"
+    )
+    normalized = normalize_database_url(url)
+    assert (
+        normalized
+        == "postgresql+asyncpg://user:pass@host.railway.internal:5432/railway?sslmode=require&application_name=goddess_ai"
+    )
+
+
+def test_database_url_special_character_passwords():
+    """Test that special character passwords (e.g. @, %, !) in URLs are not corrupted."""
+    url = "postgres://db_user:p%40ss%3Aword%21@postgres.railway.internal:5432/db"
+    normalized = normalize_database_url(url)
+    assert normalized == "postgresql+asyncpg://db_user:p%40ss%3Aword%21@postgres.railway.internal:5432/db"
+
+
 def test_database_url_password_masking():
     """Test that mask_database_url never leaks passwords in diagnostics or logs."""
     url = (
@@ -67,11 +86,30 @@ def test_production_without_database_url_raises_error():
         DATABASE_URL=None,
         POSTGRES_URL=None,
         DATABASE_PUBLIC_URL=None,
-        ENVIRONMENT="production",
+        APP_ENV="production",
     )
 
     with pytest.raises(ValueError, match="DATABASE_URL is not configured"):
         prod_settings.get_database_url()
+
+
+def test_localhost_rejection_in_production():
+    """Test that localhost/127.0.0.1 database URL in production is strictly rejected."""
+    prod_settings = Settings(
+        DATABASE_URL="postgresql://postgres:pass@localhost:5432/goddess_ai",
+        APP_ENV="production",
+    )
+
+    with pytest.raises(ValueError, match="Unsafe database host 'localhost' detected in production"):
+        prod_settings.get_database_url()
+
+    prod_settings_ip = Settings(
+        DATABASE_URL="postgresql://postgres:pass@127.0.0.1:5432/goddess_ai",
+        APP_ENV="production",
+    )
+
+    with pytest.raises(ValueError, match="Unsafe database host '127.0.0.1' detected in production"):
+        prod_settings_ip.get_database_url()
 
 
 def test_development_fallback():
@@ -80,7 +118,7 @@ def test_development_fallback():
         DATABASE_URL=None,
         POSTGRES_URL=None,
         DATABASE_PUBLIC_URL=None,
-        ENVIRONMENT="development",
+        APP_ENV="development",
     )
 
     url = dev_settings.get_database_url()
@@ -88,16 +126,39 @@ def test_development_fallback():
     assert url.startswith("postgresql+asyncpg://")
 
 
+def test_development_explicit_postgresql_url():
+    """Test development environment with explicit cloud PostgreSQL connection."""
+    dev_settings = Settings(
+        DATABASE_URL="postgresql://user:pass@remote.host:5432/dev_db",
+        APP_ENV="development",
+    )
+
+    url = dev_settings.get_database_url()
+    assert url == "postgresql+asyncpg://user:pass@remote.host:5432/dev_db"
+
+
 def test_railway_postgres_url_fallback():
     """Test that POSTGRES_URL or DATABASE_PUBLIC_URL is used if DATABASE_URL is not set."""
     railway_settings = Settings(
         DATABASE_URL=None,
         POSTGRES_URL="postgresql://postgres:pw@postgres.railway.internal:5432/railway",
-        ENVIRONMENT="production",
+        APP_ENV="production",
     )
 
     url = railway_settings.get_database_url()
     assert url == "postgresql+asyncpg://postgres:pw@postgres.railway.internal:5432/railway"
+
+
+def test_alembic_db_url_resolution():
+    """Test that Alembic can resolve the runtime database URL."""
+    test_settings = Settings(
+        DATABASE_URL="postgresql://postgres:pw@postgres.railway.internal:5432/railway",
+        APP_ENV="production",
+    )
+    assert (
+        test_settings.get_database_url()
+        == "postgresql+asyncpg://postgres:pw@postgres.railway.internal:5432/railway"
+    )
 
 
 @pytest.mark.asyncio
@@ -122,7 +183,6 @@ async def test_database_connectivity_success():
 @pytest.mark.asyncio
 async def test_database_connectivity_failure_sanitized():
     """Test that connection failures produce sanitized diagnostics without crashes."""
-    # Point engine to an unreachable port
     unreachable_engine = create_async_engine(
         "sqlite+aiosqlite:////invalid/path/that/cannot/exist/db.sqlite",
         echo=False,
@@ -149,4 +209,6 @@ async def test_health_endpoint_database_status():
         data = resp.json()
         assert "status" in data
         assert "database" in data
-        assert data["database"] in ("ready", "unavailable")
+        assert isinstance(data["database"], dict)
+        assert "configured" in data["database"]
+        assert "connected" in data["database"]

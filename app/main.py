@@ -151,17 +151,22 @@ async def root() -> dict[str, str]:
 
 @app.get("/health")
 async def health_check() -> dict[str, Any]:
-    """Basic process health and database status check."""
+    """Basic process health and safe database status check."""
+    is_configured = bool(settings.get_database_url_safe())
     db_ok, _ = await verify_database_connection(timeout_seconds=2.0)
     return {
         "status": "ok" if db_ok else "degraded",
-        "database": "ready" if db_ok else "unavailable",
+        "database": {
+            "configured": is_configured,
+            "connected": db_ok,
+        },
     }
 
 
 @app.get("/health/ready")
 async def readiness_check() -> dict[str, Any]:
     """Deep readiness check validating database, API pools, and OAuth."""
+    is_configured = bool(settings.get_database_url_safe())
     db_ok, db_diag = await verify_database_connection(timeout_seconds=3.0)
 
     yt_healthy = youtube_client.key_pool.get_healthy_count() if youtube_client else 0
@@ -172,8 +177,11 @@ async def readiness_check() -> dict[str, Any]:
 
     response_data = {
         "status": "ready" if is_ready else "degraded",
-        "database": "ready" if db_ok else "unavailable",
-        "database_detail": db_diag,
+        "database": {
+            "configured": is_configured,
+            "connected": db_ok,
+            "detail": db_diag,
+        },
         "youtube_api_keys_healthy": yt_healthy,
         "gemini_api_keys_healthy": gemini_healthy,
         "oauth_configured": oauth_ready,

@@ -1,4 +1,4 @@
-"""Application configuration using Pydantic Settings with safe database resolution."""
+"""Application configuration using Pydantic Settings with hardened database resolution."""
 
 import json
 from pathlib import Path
@@ -13,10 +13,11 @@ logger = get_logger("goddess.config")
 
 def normalize_database_url(raw_url: str | None) -> str:
     """
-    Ensure proper async dialect in database URL.
+    Ensure proper async dialect in database URL without corrupting query parameters,
+    special character passwords, or SSL options.
     Converts:
-        postgresql://... -> postgresql+asyncpg://...
         postgres://...   -> postgresql+asyncpg://...
+        postgresql://... -> postgresql+asyncpg://...
         sqlite://...     -> sqlite+aiosqlite://...
     Preserves:
         postgresql+asyncpg://... -> untouched
@@ -26,11 +27,11 @@ def normalize_database_url(raw_url: str | None) -> str:
         return ""
     url = raw_url.strip()
     if url.startswith("postgres://"):
-        url = url.replace("postgres://", "postgresql+asyncpg://", 1)
-    elif url.startswith("postgresql://") and not url.startswith("postgresql+asyncpg://"):
-        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
-    elif url.startswith("sqlite://") and not url.startswith("sqlite+aiosqlite://"):
-        url = url.replace("sqlite://", "sqlite+aiosqlite://", 1)
+        return "postgresql+asyncpg://" + url[len("postgres://") :]
+    if url.startswith("postgresql://") and not url.startswith("postgresql+asyncpg://"):
+        return "postgresql+asyncpg://" + url[len("postgresql://") :]
+    if url.startswith("sqlite://") and not url.startswith("sqlite+aiosqlite://"):
+        return "sqlite+aiosqlite://" + url[len("sqlite://") :]
     return url
 
 
@@ -64,9 +65,16 @@ class Settings(BaseSettings):
         default=None,
         description="Railway public Postgres connection fallback",
     )
+    POSTGRESQL_URL: str | None = Field(
+        default=None,
+        description="PostgreSQL fallback connection variable",
+    )
 
-    # Environment & Server
-    ENVIRONMENT: str = Field(default="production", description="Environment: production/development/test")
+    # Environment (supports both APP_ENV and ENVIRONMENT)
+    APP_ENV: str | None = Field(
+        default=None, description="Application environment: production/development/test"
+    )
+    ENVIRONMENT: str = Field(default="production", description="Fallback environment variable")
     PORT: int = Field(default=8000, description="Port to listen on")
 
     # 4 Gemini API Keys
@@ -108,23 +116,28 @@ class Settings(BaseSettings):
     CONTEXT_MESSAGE_COUNT: int = 10
 
     @property
+    def env_name(self) -> str:
+        """Normalized environment name."""
+        return (self.APP_ENV or self.ENVIRONMENT or "production").strip().lower()
+
+    @property
     def is_production(self) -> bool:
         """Check if environment is production."""
-        return self.ENVIRONMENT.lower() not in ("development", "dev", "test")
+        return self.env_name in ("production", "prod") or self.env_name not in ("development", "dev", "test")
 
     @property
     def is_development(self) -> bool:
         """Check if environment is local development."""
-        return self.ENVIRONMENT.lower() in ("development", "dev")
+        return self.env_name in ("development", "dev")
 
     @property
     def is_test(self) -> bool:
         """Check if environment is automated test."""
-        return self.ENVIRONMENT.lower() == "test"
+        return self.env_name == "test"
 
     def get_database_url_safe(self) -> str | None:
         """Retrieve database URL candidate if provided without raising error."""
-        candidates = [self.DATABASE_URL, self.POSTGRES_URL, self.DATABASE_PUBLIC_URL]
+        candidates = [self.DATABASE_URL, self.POSTGRES_URL, self.DATABASE_PUBLIC_URL, self.POSTGRESQL_URL]
         for c in candidates:
             if c and c.strip():
                 return normalize_database_url(c.strip())
@@ -133,19 +146,33 @@ class Settings(BaseSettings):
     def get_database_url(self) -> str:
         """
         Resolve, normalize, and validate the database URL based on environment.
-        In production: raises clear error if missing without falling back to localhost.
-        In development: allows explicit local fallback.
-        In test: allows in-memory test database fallback.
+        In production:
+          - Requires DATABASE_URL from environment.
+          - Rejects unsafe localhost/127.0.0.1 addresses.
+          - Raises clear, actionable error if missing.
+        In development:
+          - Allows explicit local development fallback with warning.
+        In test:
+          - Allows in-memory test database.
         """
         candidate = self.get_database_url_safe()
         if candidate:
+            # If in production, ensure no accidental localhost connection
+            if self.is_production:
+                masked = mask_database_url(candidate)
+                host_lower = masked.get("host", "").lower()
+                if host_lower in ("localhost", "127.0.0.1", "::1"):
+                    raise ValueError(
+                        f"Unsafe database host '{host_lower}' detected in production environment. "
+                        "Production must connect to the configured cloud database (e.g. Railway PostgreSQL)."
+                    )
             return candidate
 
         # No DATABASE_URL found in environment variables
         if self.is_development:
             logger.warning(
                 "No DATABASE_URL found in environment variables. "
-                "Using local development fallback at localhost:5432 (ENVIRONMENT=development)."
+                "Using local development fallback at localhost:5432 (APP_ENV=development)."
             )
             return "postgresql+asyncpg://postgres:postgres@localhost:5432/goddess_ai"
 
@@ -235,7 +262,7 @@ class Settings(BaseSettings):
         db_safe = mask_database_url(self.get_database_url_safe())
 
         logger.info(
-            f"Config initialized: Env={self.ENVIRONMENT} "
+            f"Config initialized: Env={self.env_name} "
             f"Database=[{db_safe['safe_summary']}] "
             f"GeminiKeys={gemini_count} YouTubeKeys={yt_count} "
             f"OAuthConfigured={has_oauth} "

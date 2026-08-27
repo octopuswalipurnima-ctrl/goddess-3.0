@@ -67,7 +67,7 @@ def init_engine(db_url: str | None = None) -> AsyncEngine:
 async def verify_database_connection(timeout_seconds: float = 5.0) -> tuple[bool, str]:
     """
     Test database connectivity with SELECT 1 and return a sanitized diagnostic message.
-    Never exposes passwords or sensitive credentials in error logs or return values.
+    Never exposes passwords, tokens, or sensitive credentials in error logs or return values.
     """
     global engine
     if engine is None:
@@ -80,10 +80,19 @@ async def verify_database_connection(timeout_seconds: float = 5.0) -> tuple[bool
         async with asyncio.timeout(timeout_seconds):
             async with engine.connect() as conn:
                 await conn.execute(text("SELECT 1"))
+
+        # Formatted readiness report
+        logger.info(f"DATABASE\n  URL: configured\n  Driver: {safe_info['driver']}\n  Connection: READY")
         return True, f"Database connected ({safe_info['safe_summary']})"
     except TimeoutError:
         msg = f"Connection timed out after {timeout_seconds}s attempting to connect to PostgreSQL at {safe_host}."
-        logger.error(f"Database connectivity timeout: {msg}")
+        logger.error(
+            f"DATABASE\n"
+            f"  URL: configured\n"
+            f"  Driver: {safe_info['driver']}\n"
+            f"  Connection: FAILED\n"
+            f"  Reason: Timeout connecting to {safe_host}"
+        )
         return False, msg
     except Exception as e:
         err_str = str(e)
@@ -98,7 +107,14 @@ async def verify_database_connection(timeout_seconds: float = 5.0) -> tuple[bool
             msg = f"Database '{safe_info['database']}' does not exist on {safe_host}."
         else:
             msg = f"Database error connecting to {safe_host}: {err_str[:120]}"
-        logger.error(f"Database connectivity check failed: {msg}")
+
+        logger.error(
+            f"DATABASE\n"
+            f"  URL: configured\n"
+            f"  Driver: {safe_info['driver']}\n"
+            f"  Connection: FAILED\n"
+            f"  Reason: {msg}"
+        )
         return False, msg
 
 
