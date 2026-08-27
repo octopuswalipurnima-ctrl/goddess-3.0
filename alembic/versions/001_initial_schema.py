@@ -6,11 +6,14 @@ Create Date: 2026-08-26 20:00:00.000000
 
 """
 
+import logging
 from collections.abc import Sequence
 
 import sqlalchemy as sa
 
 from alembic import op
+
+logger = logging.getLogger("alembic.migration")
 
 revision: str = "001_initial_schema"
 down_revision: str | None = None
@@ -20,6 +23,7 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     # 1. channels
+    logger.info("--> [1/13] Creating table 'channels'...")
     op.create_table(
         "channels",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
@@ -44,10 +48,12 @@ def upgrade() -> None:
             server_default=sa.func.now(),
         ),
         sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("channel_id", name="uq_channels_channel_id"),
     )
     op.create_index("ix_channels_channel_id", "channels", ["channel_id"], unique=True)
 
     # 2. channel_settings
+    logger.info("--> [2/13] Creating table 'channel_settings'...")
     op.create_table(
         "channel_settings",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
@@ -91,6 +97,7 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(["channel_id"], ["channels.channel_id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("channel_id", name="uq_channel_settings_channel_id"),
     )
     op.create_index(
         "ix_channel_settings_channel_id",
@@ -100,6 +107,7 @@ def upgrade() -> None:
     )
 
     # 3. users
+    logger.info("--> [3/13] Creating table 'users'...")
     op.create_table(
         "users",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
@@ -135,6 +143,7 @@ def upgrade() -> None:
     op.create_index("ix_users_youtube_user_id", "users", ["youtube_user_id"], unique=False)
 
     # 4. streams
+    logger.info("--> [4/13] Creating table 'streams'...")
     op.create_table(
         "streams",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
@@ -165,6 +174,7 @@ def upgrade() -> None:
     op.create_index("ix_streams_live_chat_id", "streams", ["live_chat_id"], unique=False)
 
     # 5. chat_messages
+    logger.info("--> [5/13] Creating table 'chat_messages'...")
     op.create_table(
         "chat_messages",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
@@ -183,19 +193,13 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(["stream_id"], ["streams.id"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("youtube_message_id"),
+        sa.UniqueConstraint("youtube_message_id", name="uq_chat_messages_yt_msg_id"),
     )
     op.create_index(
         "ix_chat_messages_channel_stream_created",
         "chat_messages",
         ["channel_id", "stream_id", "created_at"],
         unique=False,
-    )
-    op.create_index(
-        "ix_chat_messages_youtube_message_id",
-        "chat_messages",
-        ["youtube_message_id"],
-        unique=True,
     )
     op.create_index(
         "ix_chat_messages_youtube_user_id",
@@ -205,6 +209,7 @@ def upgrade() -> None:
     )
 
     # 6. commands
+    logger.info("--> [6/13] Creating table 'commands'...")
     op.create_table(
         "commands",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
@@ -231,6 +236,7 @@ def upgrade() -> None:
     op.create_index("ix_commands_name", "commands", ["name"], unique=False)
 
     # 7. store_items
+    logger.info("--> [7/13] Creating table 'store_items'...")
     op.create_table(
         "store_items",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
@@ -259,6 +265,7 @@ def upgrade() -> None:
     op.create_index("ix_store_items_item_name", "store_items", ["item_name"], unique=False)
 
     # 8. purchases
+    logger.info("--> [8/13] Creating table 'purchases'...")
     op.create_table(
         "purchases",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
@@ -280,6 +287,7 @@ def upgrade() -> None:
     op.create_index("ix_purchases_user_id", "purchases", ["user_id"], unique=False)
 
     # 9. one_v_one_queue
+    logger.info("--> [9/13] Creating table 'one_v_one_queue'...")
     op.create_table(
         "one_v_one_queue",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
@@ -307,6 +315,7 @@ def upgrade() -> None:
     )
 
     # 10. moderation_reviews
+    logger.info("--> [10/13] Creating table 'moderation_reviews'...")
     op.create_table(
         "moderation_reviews",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
@@ -340,6 +349,7 @@ def upgrade() -> None:
     )
 
     # 11. moderation_memory
+    logger.info("--> [11/13] Creating table 'moderation_memory'...")
     op.create_table(
         "moderation_memory",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
@@ -373,6 +383,7 @@ def upgrade() -> None:
     )
 
     # 12. websub_subscriptions
+    logger.info("--> [12/13] Creating table 'websub_subscriptions'...")
     op.create_table(
         "websub_subscriptions",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
@@ -383,6 +394,7 @@ def upgrade() -> None:
         sa.Column("last_renewed", sa.DateTime(timezone=True), nullable=True),
         sa.Column("last_error", sa.Text(), nullable=True),
         sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("channel_id", name="uq_websub_subscriptions_channel_id"),
     )
     op.create_index(
         "ix_websub_subscriptions_channel_id",
@@ -392,6 +404,7 @@ def upgrade() -> None:
     )
 
     # 13. audit_logs
+    logger.info("--> [13/13] Creating table 'audit_logs'...")
     op.create_table(
         "audit_logs",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
@@ -418,6 +431,8 @@ def upgrade() -> None:
         ["channel_id", "created_at"],
         unique=False,
     )
+
+    logger.info("--> [SUCCESS] All 13 schema tables and indices created.")
 
 
 def downgrade() -> None:

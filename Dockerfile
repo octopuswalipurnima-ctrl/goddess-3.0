@@ -1,8 +1,12 @@
 FROM python:3.12-slim
 
+# Force immediate unbuffered logging for real-time Railway logs
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
 WORKDIR /app
 
-# Install build dependencies if needed
+# Install build and runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
@@ -17,5 +21,5 @@ COPY . .
 # Expose default port
 EXPOSE 8000
 
-# Default command
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Default command: run migrations with unbuffered Python and launch Uvicorn
+CMD ["sh", "-c", "python -u -m alembic upgrade head && python -u -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

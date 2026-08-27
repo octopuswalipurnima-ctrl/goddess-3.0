@@ -117,8 +117,20 @@ class Settings(BaseSettings):
 
     @property
     def env_name(self) -> str:
-        """Normalized environment name."""
-        return (self.APP_ENV or self.ENVIRONMENT or "production").strip().lower()
+        """Normalized environment name dynamically checking os.environ."""
+        import os
+
+        return (
+            (
+                os.environ.get("APP_ENV")
+                or self.APP_ENV
+                or os.environ.get("ENVIRONMENT")
+                or self.ENVIRONMENT
+                or "production"
+            )
+            .strip()
+            .lower()
+        )
 
     @property
     def is_production(self) -> bool:
@@ -136,8 +148,19 @@ class Settings(BaseSettings):
         return self.env_name == "test"
 
     def get_database_url_safe(self) -> str | None:
-        """Retrieve database URL candidate if provided without raising error."""
-        candidates = [self.DATABASE_URL, self.POSTGRES_URL, self.DATABASE_PUBLIC_URL, self.POSTGRESQL_URL]
+        """Retrieve database URL candidate dynamically checking instance attributes and os.environ."""
+        import os
+
+        candidates = [
+            self.DATABASE_URL,
+            os.environ.get("DATABASE_URL"),
+            self.POSTGRES_URL,
+            os.environ.get("POSTGRES_URL"),
+            self.DATABASE_PUBLIC_URL,
+            os.environ.get("DATABASE_PUBLIC_URL"),
+            self.POSTGRESQL_URL,
+            os.environ.get("POSTGRESQL_URL"),
+        ]
         for c in candidates:
             if c and c.strip():
                 return normalize_database_url(c.strip())
