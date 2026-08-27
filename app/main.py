@@ -8,10 +8,15 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import PlainTextResponse
-from sqlalchemy import select, text
+from sqlalchemy import select
 
 from app.config import settings
-from app.database import close_engine, get_session, init_engine
+from app.database import (
+    close_engine,
+    get_session,
+    init_engine,
+    verify_database_connection,
+)
 from app.gemini import GeminiClient, GeminiKeyPool
 from app.models import Channel, ChannelSettings
 from app.utils import get_logger, setup_logging
@@ -42,8 +47,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Starting Goddess AI 3.0 (Honney)...")
     settings.log_summary()
 
-    # 1. Database
-    init_engine()
+    # 1. Database initialization and connectivity verification
+    try:
+        init_engine()
+        db_ok, db_diag = await verify_database_connection(timeout_seconds=5.0)
+        if not db_ok:
+            logger.error(f"DATABASE STARTUP VERIFICATION FAILED: {db_diag}")
+            if settings.is_production:
+                raise RuntimeError(
+                    f"Production database connection failure: {db_diag}. "
+                    "Verify DATABASE_URL is set in your Railway service variables."
+                )
+        else:
+            logger.info("Database startup verification succeeded.")
+    except Exception as e:
+        logger.error(f"Fatal error during database startup: {e}")
+        raise
 
     # 2. Sync configured channels to DB
     async with get_session() as session:
@@ -90,7 +109,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     websub_manager = WebSubManager()
 
-    # Start managers
+    # Start background managers
     stream_manager.start()
     websub_manager.start()
 
@@ -132,20 +151,18 @@ async def root() -> dict[str, str]:
 
 @app.get("/health")
 async def health_check() -> dict[str, Any]:
-    """Basic process liveness check."""
-    return {"status": "ok"}
+    """Basic process health and database status check."""
+    db_ok, _ = await verify_database_connection(timeout_seconds=2.0)
+    return {
+        "status": "ok" if db_ok else "degraded",
+        "database": "ready" if db_ok else "unavailable",
+    }
 
 
 @app.get("/health/ready")
 async def readiness_check() -> dict[str, Any]:
     """Deep readiness check validating database, API pools, and OAuth."""
-    db_ok = False
-    try:
-        async with get_session() as session:
-            await session.execute(text("SELECT 1"))
-            db_ok = True
-    except Exception as e:
-        logger.error(f"Database readiness failure: {e}")
+    db_ok, db_diag = await verify_database_connection(timeout_seconds=3.0)
 
     yt_healthy = youtube_client.key_pool.get_healthy_count() if youtube_client else 0
     gemini_healthy = gemini_client.key_pool.get_healthy_count() if gemini_client else 0
@@ -155,7 +172,8 @@ async def readiness_check() -> dict[str, Any]:
 
     response_data = {
         "status": "ready" if is_ready else "degraded",
-        "database": "connected" if db_ok else "unreachable",
+        "database": "ready" if db_ok else "unavailable",
+        "database_detail": db_diag,
         "youtube_api_keys_healthy": yt_healthy,
         "gemini_api_keys_healthy": gemini_healthy,
         "oauth_configured": oauth_ready,

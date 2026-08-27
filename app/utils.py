@@ -5,6 +5,7 @@ import logging
 import re
 import sys
 import unicodedata
+import urllib.parse
 from datetime import UTC, datetime
 from typing import Any
 
@@ -16,6 +17,61 @@ def mask_secret(secret: str | None, visible_chars: int = 4) -> str:
     if len(secret) <= visible_chars * 2:
         return "***"
     return f"{secret[:visible_chars]}...{secret[-visible_chars:]}"
+
+
+def mask_database_url(url: str | None) -> dict[str, str]:
+    """
+    Extract safe metadata from a database URL without exposing sensitive passwords.
+    Never exposes credentials in logs.
+    """
+    if not url:
+        return {
+            "driver": "[NOT_CONFIGURED]",
+            "host": "[NOT_CONFIGURED]",
+            "port": "[NOT_CONFIGURED]",
+            "database": "[NOT_CONFIGURED]",
+            "user": "[NOT_CONFIGURED]",
+            "safe_summary": "driver=[NOT_CONFIGURED] host=[NOT_CONFIGURED] db=[NOT_CONFIGURED]",
+        }
+
+    try:
+        # If sqlite in-memory or file
+        if "sqlite" in url:
+            driver = "sqlite+aiosqlite" if "aiosqlite" in url else "sqlite"
+            return {
+                "driver": driver,
+                "host": "localhost",
+                "port": "0",
+                "database": ":memory:" if ":memory:" in url else "sqlite.db",
+                "user": "none",
+                "safe_summary": f"driver={driver} host=local db=:memory:",
+            }
+
+        parsed = urllib.parse.urlparse(url)
+        driver = parsed.scheme or "[UNKNOWN]"
+        host = parsed.hostname or "[NO_HOST]"
+        port = str(parsed.port) if parsed.port else "5432"
+        database = parsed.path.lstrip("/") if parsed.path else "[NO_DB]"
+        user = parsed.username or "[NO_USER]"
+
+        safe_summary = f"driver={driver} host={host}:{port} db={database} user={user}"
+        return {
+            "driver": driver,
+            "host": host,
+            "port": port,
+            "database": database,
+            "user": user,
+            "safe_summary": safe_summary,
+        }
+    except Exception:
+        return {
+            "driver": "[INVALID]",
+            "host": "[INVALID]",
+            "port": "[INVALID]",
+            "database": "[INVALID]",
+            "user": "[INVALID]",
+            "safe_summary": "DATABASE_URL=[INVALID_FORMAT]",
+        }
 
 
 class StructuredFormatter(logging.Formatter):

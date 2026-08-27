@@ -1,4 +1,4 @@
-"""Application configuration using Pydantic Settings."""
+"""Application configuration using Pydantic Settings with safe database resolution."""
 
 import json
 from pathlib import Path
@@ -6,9 +6,32 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.utils import get_logger
+from app.utils import get_logger, mask_database_url
 
 logger = get_logger("goddess.config")
+
+
+def normalize_database_url(raw_url: str | None) -> str:
+    """
+    Ensure proper async dialect in database URL.
+    Converts:
+        postgresql://... -> postgresql+asyncpg://...
+        postgres://...   -> postgresql+asyncpg://...
+        sqlite://...     -> sqlite+aiosqlite://...
+    Preserves:
+        postgresql+asyncpg://... -> untouched
+        sqlite+aiosqlite://...   -> untouched
+    """
+    if not raw_url or not raw_url.strip():
+        return ""
+    url = raw_url.strip()
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+    elif url.startswith("postgresql://") and not url.startswith("postgresql+asyncpg://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    elif url.startswith("sqlite://") and not url.startswith("sqlite+aiosqlite://"):
+        url = url.replace("sqlite://", "sqlite+aiosqlite://", 1)
+    return url
 
 
 class ChannelConfig(BaseModel):
@@ -28,15 +51,23 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Database
-    DATABASE_URL: str = Field(
-        default="postgresql+asyncpg://postgres:postgres@localhost:5432/goddess_ai",
-        description="Async PostgreSQL connection string",
+    # Database URLs (supports standard DATABASE_URL as well as Railway-provided fallbacks)
+    DATABASE_URL: str | None = Field(
+        default=None,
+        description="Primary async PostgreSQL connection string",
+    )
+    POSTGRES_URL: str | None = Field(
+        default=None,
+        description="Railway alternative Postgres connection variable",
+    )
+    DATABASE_PUBLIC_URL: str | None = Field(
+        default=None,
+        description="Railway public Postgres connection fallback",
     )
 
-    # Web Server & Deployment
-    PORT: int = Field(default=8000, description="Port to listen on")
+    # Environment & Server
     ENVIRONMENT: str = Field(default="production", description="Environment: production/development/test")
+    PORT: int = Field(default=8000, description="Port to listen on")
 
     # 4 Gemini API Keys
     GEMINI_API_KEY_1: str | None = Field(default=None)
@@ -75,6 +106,58 @@ class Settings(BaseSettings):
     DEFAULT_MODERATION_THRESHOLD: float = 0.90
     DEFAULT_HITL_THRESHOLD: float = 0.40
     CONTEXT_MESSAGE_COUNT: int = 10
+
+    @property
+    def is_production(self) -> bool:
+        """Check if environment is production."""
+        return self.ENVIRONMENT.lower() not in ("development", "dev", "test")
+
+    @property
+    def is_development(self) -> bool:
+        """Check if environment is local development."""
+        return self.ENVIRONMENT.lower() in ("development", "dev")
+
+    @property
+    def is_test(self) -> bool:
+        """Check if environment is automated test."""
+        return self.ENVIRONMENT.lower() == "test"
+
+    def get_database_url_safe(self) -> str | None:
+        """Retrieve database URL candidate if provided without raising error."""
+        candidates = [self.DATABASE_URL, self.POSTGRES_URL, self.DATABASE_PUBLIC_URL]
+        for c in candidates:
+            if c and c.strip():
+                return normalize_database_url(c.strip())
+        return None
+
+    def get_database_url(self) -> str:
+        """
+        Resolve, normalize, and validate the database URL based on environment.
+        In production: raises clear error if missing without falling back to localhost.
+        In development: allows explicit local fallback.
+        In test: allows in-memory test database fallback.
+        """
+        candidate = self.get_database_url_safe()
+        if candidate:
+            return candidate
+
+        # No DATABASE_URL found in environment variables
+        if self.is_development:
+            logger.warning(
+                "No DATABASE_URL found in environment variables. "
+                "Using local development fallback at localhost:5432 (ENVIRONMENT=development)."
+            )
+            return "postgresql+asyncpg://postgres:postgres@localhost:5432/goddess_ai"
+
+        if self.is_test:
+            return "sqlite+aiosqlite:///:memory:"
+
+        # In production: strict validation failure
+        raise ValueError(
+            "DATABASE_URL is not configured. "
+            "In Railway: ensure a PostgreSQL database service exists in your project and "
+            "link the variable DATABASE_URL=${{Postgres.DATABASE_URL}} in your service settings."
+        )
 
     def get_gemini_keys(self) -> list[str]:
         """Return non-empty Gemini API keys."""
@@ -145,12 +228,16 @@ class Settings(BaseSettings):
             return []
 
     def log_summary(self) -> None:
-        """Log sanitized configuration summary."""
+        """Log sanitized configuration summary without leaking passwords or secrets."""
         gemini_count = len(self.get_gemini_keys())
         yt_count = len(self.get_youtube_keys())
         has_oauth = bool(self.YOUTUBE_OAUTH_REFRESH_TOKEN or self.YOUTUBE_OAUTH_TOKEN)
+        db_safe = mask_database_url(self.get_database_url_safe())
+
         logger.info(
-            f"Config initialized: GeminiKeys={gemini_count} YouTubeKeys={yt_count} "
+            f"Config initialized: Env={self.ENVIRONMENT} "
+            f"Database=[{db_safe['safe_summary']}] "
+            f"GeminiKeys={gemini_count} YouTubeKeys={yt_count} "
             f"OAuthConfigured={has_oauth} "
             f"WebSubCallback={self.WEBSUB_CALLBACK_URL or '[NOT_SET]'}"
         )
