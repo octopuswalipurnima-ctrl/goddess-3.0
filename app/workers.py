@@ -23,7 +23,7 @@ from app.models import (
 )
 from app.moderation import ModerationEngine
 from app.utils import get_logger, normalize_text
-from app.youtube import YouTubeClient
+from app.youtube import LiveDetectionResult, LiveDetectionStatus, YouTubeClient
 
 logger = get_logger("goddess.workers")
 
@@ -489,32 +489,53 @@ class StreamManager:
 
             return True
 
-    async def scan_channel(self, channel_id: str) -> dict[str, Any]:
+    async def scan_channel(self, channel_id: str) -> LiveDetectionResult:
         """Scan a single channel by its permanent UC ID for an active live broadcast."""
         is_misayu = channel_id == "UCCMwadkzXrznmMpZd5ek6PA"
         prefix = "[MISAYUISLIVE SCAN]" if is_misayu else f"[{channel_id} SCAN]"
         logger.info(f"{prefix}\n  Channel ID: {channel_id}\n  Status: CHECKING")
 
-        try:
-            live_info = await self.youtube.get_active_live_video(channel_id)
-            if live_info:
-                vid = live_info.get("video_id")
-                title = live_info.get("title")
-                logger.info(f"{prefix}\n  Status: LIVE\n  Video ID: {vid}")
-                if vid:
-                    await self._check_and_start_stream(channel_id, vid, title)
-                return {"status": "LIVE", "video_id": vid, "title": title}
-            else:
-                logger.info(f"{prefix}\n  Status: OFFLINE")
-                return {"status": "OFFLINE"}
-        except Exception as e:
-            logger.warning(f"{prefix}\n  Status: API_ERROR\n  Error: {e}")
-            return {"status": "API_ERROR", "error": str(e)}
+        result = await self.youtube.get_active_live_video(channel_id)
 
-    async def scan_all_channels_now(self) -> dict[str, Any]:
+        if result.status == LiveDetectionStatus.LIVE:
+            logger.info(f"{prefix}\n  Status: LIVE\n  Video ID: {result.video_id}")
+            if result.video_id:
+                await self._check_and_start_stream(channel_id, result.video_id, result.title)
+            return result
+        elif result.status == LiveDetectionStatus.OFFLINE:
+            logger.info(f"{prefix}\n  Status: OFFLINE")
+            return result
+        elif result.status == LiveDetectionStatus.QUOTA_ERROR:
+            logger.warning(
+                f"{prefix}\n"
+                f"  Status: QUOTA_ERROR\n"
+                f"  Reason: {result.error_reason}\n"
+                f"  Message: {result.error_message}\n"
+                f"  Action: Retrying next cycle with backoff"
+            )
+            return result
+        elif result.status == LiveDetectionStatus.NETWORK_ERROR:
+            logger.warning(
+                f"{prefix}\n"
+                f"  Status: NETWORK_ERROR\n"
+                f"  Message: {result.error_message}\n"
+                f"  Action: Retrying next cycle with backoff"
+            )
+            return result
+        else:
+            logger.warning(
+                f"{prefix}\n"
+                f"  Status: API_ERROR (HTTP {result.http_status})\n"
+                f"  Reason: {result.error_reason}\n"
+                f"  Message: {result.error_message}\n"
+                f"  Action: Retrying next cycle with backoff"
+            )
+            return result
+
+    async def scan_all_channels_now(self) -> dict[str, LiveDetectionResult]:
         """Scan all enabled channels immediately (e.g. at startup or on manual trigger)."""
         channels = settings.load_channels()
-        results = {}
+        results: dict[str, LiveDetectionResult] = {}
         for ch in channels:
             res = await self.scan_channel(ch.channel_id)
             results[ch.channel_id] = res

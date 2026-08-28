@@ -8,6 +8,7 @@ from enum import StrEnum
 from typing import Any
 
 import httpx
+from pydantic import BaseModel
 
 from app.config import settings
 from app.utils import get_logger
@@ -26,6 +27,49 @@ class KeyState(StrEnum):
     FORBIDDEN = "FORBIDDEN"
     NETWORK_ERROR = "NETWORK_ERROR"
     UNKNOWN_ERROR = "UNKNOWN_ERROR"
+
+
+class LiveDetectionStatus(StrEnum):
+    """Status outcomes for active live stream scanning."""
+
+    LIVE = "LIVE"
+    OFFLINE = "OFFLINE"
+    API_ERROR = "API_ERROR"
+    QUOTA_ERROR = "QUOTA_ERROR"
+    NETWORK_ERROR = "NETWORK_ERROR"
+    AUTH_ERROR = "AUTH_ERROR"
+    UNKNOWN_ERROR = "UNKNOWN_ERROR"
+
+
+class LiveDetectionResult(BaseModel):
+    """Structured, strongly-typed result of active livestream detection."""
+
+    status: LiveDetectionStatus
+    channel_id: str
+    video_id: str | None = None
+    title: str | None = None
+    http_status: int | None = None
+    error_reason: str | None = None
+    error_message: str | None = None
+    raw_data: dict[str, Any] | None = None
+
+    @property
+    def is_live(self) -> bool:
+        return self.status == LiveDetectionStatus.LIVE and bool(self.video_id)
+
+    @property
+    def is_offline(self) -> bool:
+        return self.status == LiveDetectionStatus.OFFLINE
+
+    @property
+    def is_error(self) -> bool:
+        return self.status in (
+            LiveDetectionStatus.API_ERROR,
+            LiveDetectionStatus.QUOTA_ERROR,
+            LiveDetectionStatus.NETWORK_ERROR,
+            LiveDetectionStatus.AUTH_ERROR,
+            LiveDetectionStatus.UNKNOWN_ERROR,
+        )
 
 
 class YouTubeAPIUnavailableError(Exception):
@@ -532,13 +576,15 @@ class YouTubeClient:
         total_keys = max(self.key_pool.total_keys, 1)
         retries_limit = max_retries if max_retries is not None else total_keys
         attempts = 0
+        last_error_summary = ""
 
         while attempts < retries_limit:
             attempts += 1
             try:
                 label, api_key = await self.key_pool.get_next_key()
-            except YouTubeAPIUnavailableError:
+            except YouTubeAPIUnavailableError as e:
                 # No more keys available in this cycle
+                last_error_summary = str(e)
                 break
 
             req_params = {**params, "key": api_key}
@@ -565,11 +611,13 @@ class YouTubeClient:
                 domain = errors_list[0].get("domain", "") if errors_list else ""
 
                 logger.warning(
-                    f"YouTube API read failed on [{label}]:\n"
+                    f"[YOUTUBE API ERROR]\n"
                     f"  Operation: {operation_name}\n"
-                    f"  Status: HTTP {status_code}\n"
+                    f"  Key slot: {label}\n"
+                    f"  HTTP: {status_code}\n"
                     f"  Reason: {reason}\n"
-                    f"  Message: {message}"
+                    f"  Message: {message}\n"
+                    f"  Action: Recording failure on {label}"
                 )
 
                 await self.key_pool.report_failure(
@@ -581,11 +629,19 @@ class YouTubeClient:
                     operation=operation_name,
                 )
 
-                # Rotate to next key
+                last_error_summary = f"HTTP {status_code} ({reason}): {message}"
+                if attempts < retries_limit:
+                    logger.info(f"Retrying '{operation_name}' with next available key slot...")
                 continue
 
             except httpx.RequestError as e:
-                logger.warning(f"Network error on [{label}] during '{operation_name}': {e}")
+                logger.warning(
+                    f"[YOUTUBE NETWORK ERROR]\n"
+                    f"  Operation: {operation_name}\n"
+                    f"  Key slot: {label}\n"
+                    f"  Message: {e}\n"
+                    f"  Action: Recording network failure on {label}"
+                )
                 await self.key_pool.report_failure(
                     label=label,
                     status_code=0,
@@ -593,11 +649,16 @@ class YouTubeClient:
                     message=str(e),
                     operation=operation_name,
                 )
+                last_error_summary = f"Network error: {e}"
+                if attempts < retries_limit:
+                    logger.info(f"Retrying '{operation_name}' with next available key slot...")
                 continue
 
         # If loop finishes without returning, raise forensic unavailable error
+        pool_status = "; ".join(f"[{k['label']}: {k['state']}]" for k in self.key_pool.get_status_summary())
         raise YouTubeAPIUnavailableError(
-            f"Exhausted all available YouTube API keys for operation '{operation_name}' after {attempts} attempt(s)."
+            f"Exhausted all available YouTube API keys for operation '{operation_name}' after {attempts} attempt(s). "
+            f"Pool status: {pool_status}. Last error: {last_error_summary}"
         )
 
     async def get_channel_details(self, channel_id: str) -> dict[str, Any] | None:
@@ -618,8 +679,11 @@ class YouTubeClient:
             logger.error(f"Error fetching channel details for {channel_id}: {e}")
             return None
 
-    async def get_active_live_video(self, channel_id: str) -> dict[str, Any] | None:
-        """Find the currently active live broadcast for a channel."""
+    async def get_active_live_video(self, channel_id: str) -> LiveDetectionResult:
+        """
+        Find the currently active live broadcast for a channel.
+        Distinguishes genuinely OFFLINE from API_ERROR, QUOTA_ERROR, and NETWORK_ERROR.
+        """
         url = "https://www.googleapis.com/youtube/v3/search"
         params = {
             "part": "snippet",
@@ -637,11 +701,65 @@ class YouTubeClient:
                 logger.info(
                     f"Active live broadcast detected for channel {channel_id}: video_id={video_id} title='{title}'"
                 )
-                return {"video_id": video_id, "title": title}
-            return None
-        except Exception as e:
+                return LiveDetectionResult(
+                    status=LiveDetectionStatus.LIVE,
+                    channel_id=channel_id,
+                    video_id=video_id,
+                    title=title,
+                    http_status=200,
+                    raw_data=data,
+                )
+            # Genuinely OFFLINE: HTTP 200 with empty items
+            return LiveDetectionResult(
+                status=LiveDetectionStatus.OFFLINE,
+                channel_id=channel_id,
+                http_status=200,
+                raw_data=data,
+            )
+        except YouTubeAPIUnavailableError as e:
             logger.error(f"Error fetching active live video for channel {channel_id}: {e}")
-            return None
+            err_msg = str(e)
+            is_net = "Network error" in err_msg or "NetworkError" in err_msg or "ConnectError" in err_msg
+            st = LiveDetectionStatus.NETWORK_ERROR if is_net else LiveDetectionStatus.QUOTA_ERROR
+            return LiveDetectionResult(
+                status=st,
+                channel_id=channel_id,
+                error_reason="NetworkError" if is_net else "KeysUnavailable",
+                error_message=err_msg,
+            )
+        except httpx.HTTPStatusError as e:
+            status_code = e.response.status_code
+            logger.error(
+                f"HTTP error fetching active live video for channel {channel_id}: {status_code} - {e}"
+            )
+            st = (
+                LiveDetectionStatus.QUOTA_ERROR
+                if status_code in (403, 429)
+                else LiveDetectionStatus.API_ERROR
+            )
+            return LiveDetectionResult(
+                status=st,
+                channel_id=channel_id,
+                http_status=status_code,
+                error_reason=f"HTTP_{status_code}",
+                error_message=str(e),
+            )
+        except httpx.RequestError as e:
+            logger.error(f"Network error fetching active live video for channel {channel_id}: {e}")
+            return LiveDetectionResult(
+                status=LiveDetectionStatus.NETWORK_ERROR,
+                channel_id=channel_id,
+                error_reason="NetworkError",
+                error_message=str(e),
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error fetching active live video for channel {channel_id}: {e}")
+            return LiveDetectionResult(
+                status=LiveDetectionStatus.UNKNOWN_ERROR,
+                channel_id=channel_id,
+                error_reason="UnexpectedException",
+                error_message=str(e),
+            )
 
     async def get_live_chat_id(self, video_id: str) -> str | None:
         """Resolve activeLiveChatId for a live video ID."""

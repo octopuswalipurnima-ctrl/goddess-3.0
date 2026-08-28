@@ -8,6 +8,7 @@ import pytest
 
 from app.youtube import (
     KeyState,
+    LiveDetectionStatus,
     OAuthManager,
     YouTubeAPIUnavailableError,
     YouTubeClient,
@@ -291,15 +292,171 @@ async def test_youtube_client_live_detection_flow():
     assert ch["id"] == "UC123"
 
     # 2. Live video detection
-    live_video = await yt.get_active_live_video("UC123")
-    assert live_video is not None
-    assert live_video["video_id"] == "test_video_123"
-    assert live_video["title"] == "Live Gaming Stream"
+    live_res = await yt.get_active_live_video("UC123")
+    assert live_res.is_live is True
+    assert live_res.video_id == "test_video_123"
+    assert live_res.title == "Live Gaming Stream"
 
     # 3. Live chat ID resolution
     chat_id = await yt.get_live_chat_id("test_video_123")
     assert chat_id == "chat_id_abc_789"
 
+    await yt.close()
+
+
+@pytest.mark.asyncio
+async def test_api_error_is_not_offline():
+    """Verify that HTTP 400/500 API errors produce API_ERROR and are NOT marked OFFLINE."""
+
+    class MockErrorTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                400,
+                json={
+                    "error": {
+                        "code": 400,
+                        "message": "Bad Request",
+                        "errors": [{"reason": "keyInvalid"}],
+                    }
+                },
+                request=request,
+            )
+
+    client = httpx.AsyncClient(transport=MockErrorTransport())
+    yt = YouTubeClient(key_pool=YouTubeKeyPool(["k1"]), http_client=client)
+
+    res = await yt.get_active_live_video("UCVQ8Qn1JPuZV8VzOgIdUGxQ")
+    assert res.status != LiveDetectionStatus.OFFLINE
+    assert res.is_offline is False
+    assert res.is_error is True
+    await yt.close()
+
+
+@pytest.mark.asyncio
+async def test_quota_error_is_not_offline():
+    """Verify that 403 quotaExceeded produces QUOTA_ERROR and is NOT marked OFFLINE."""
+
+    class MockQuotaTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                403,
+                json={
+                    "error": {
+                        "code": 403,
+                        "message": "Quota exceeded",
+                        "errors": [{"reason": "quotaExceeded"}],
+                    }
+                },
+                request=request,
+            )
+
+    client = httpx.AsyncClient(transport=MockQuotaTransport())
+    yt = YouTubeClient(key_pool=YouTubeKeyPool(["k1"]), http_client=client)
+
+    res = await yt.get_active_live_video("UCVQ8Qn1JPuZV8VzOgIdUGxQ")
+    assert res.status != LiveDetectionStatus.OFFLINE
+    assert res.is_offline is False
+    assert res.status == LiveDetectionStatus.QUOTA_ERROR
+    await yt.close()
+
+
+@pytest.mark.asyncio
+async def test_network_error_is_not_offline():
+    """Verify that connection failure produces NETWORK_ERROR and is NOT marked OFFLINE."""
+
+    class MockNetworkFailTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("Connection refused to YouTube API")
+
+    client = httpx.AsyncClient(transport=MockNetworkFailTransport())
+    yt = YouTubeClient(key_pool=YouTubeKeyPool(["k1"]), http_client=client)
+
+    res = await yt.get_active_live_video("UCVQ8Qn1JPuZV8VzOgIdUGxQ")
+    assert res.status != LiveDetectionStatus.OFFLINE
+    assert res.is_offline is False
+    assert res.status == LiveDetectionStatus.NETWORK_ERROR
+    await yt.close()
+
+
+@pytest.mark.asyncio
+async def test_successful_empty_result_is_offline():
+    """Verify that only HTTP 200 with empty items produces OFFLINE."""
+
+    class MockOfflineTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"items": []}, request=request)
+
+    client = httpx.AsyncClient(transport=MockOfflineTransport())
+    yt = YouTubeClient(key_pool=YouTubeKeyPool(["k1"]), http_client=client)
+
+    res = await yt.get_active_live_video("UCVQ8Qn1JPuZV8VzOgIdUGxQ")
+    assert res.status == LiveDetectionStatus.OFFLINE
+    assert res.is_offline is True
+    assert res.is_live is False
+    assert res.is_error is False
+    await yt.close()
+
+
+@pytest.mark.asyncio
+async def test_live_result_is_live():
+    """Verify that HTTP 200 with active broadcast produces LIVE with extracted metadata."""
+
+    class MockLiveTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {
+                            "id": {"videoId": "vid_active_99"},
+                            "snippet": {"title": "Active Live Stream"},
+                        }
+                    ]
+                },
+                request=request,
+            )
+
+    client = httpx.AsyncClient(transport=MockLiveTransport())
+    yt = YouTubeClient(key_pool=YouTubeKeyPool(["k1"]), http_client=client)
+
+    res = await yt.get_active_live_video("UCVQ8Qn1JPuZV8VzOgIdUGxQ")
+    assert res.status == LiveDetectionStatus.LIVE
+    assert res.is_live is True
+    assert res.video_id == "vid_active_99"
+    assert res.title == "Active Live Stream"
+    await yt.close()
+
+
+@pytest.mark.asyncio
+async def test_three_keys_are_attempted_when_available():
+    """Verify that all 3 configured keys are attempted when key 1 and key 2 fail with retryable errors."""
+    attempted_keys = []
+
+    class MockMultiKeyTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            key = request.url.params.get("key")
+            attempted_keys.append(key)
+            if key == "key_3":
+                return httpx.Response(200, json={"items": [{"id": "UC_OK"}]}, request=request)
+            return httpx.Response(
+                403,
+                json={
+                    "error": {
+                        "code": 403,
+                        "message": "Quota exceeded",
+                        "errors": [{"reason": "quotaExceeded"}],
+                    }
+                },
+                request=request,
+            )
+
+    client = httpx.AsyncClient(transport=MockMultiKeyTransport())
+    pool = YouTubeKeyPool(["key_1", "key_2", "key_3"])
+    yt = YouTubeClient(key_pool=pool, http_client=client)
+
+    data = await yt._execute_read_request("test.op", "https://api.test", {})
+    assert data["items"][0]["id"] == "UC_OK"
+    assert attempted_keys == ["key_1", "key_2", "key_3"]
     await yt.close()
 
 

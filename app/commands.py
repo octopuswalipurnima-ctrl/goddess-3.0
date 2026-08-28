@@ -27,7 +27,7 @@ from app.models import (
 )
 from app.moderation import resolve_moderation_review
 from app.utils import get_logger
-from app.youtube import YouTubeClient
+from app.youtube import LiveDetectionStatus, YouTubeClient
 
 logger = get_logger("goddess.commands")
 
@@ -865,16 +865,19 @@ async def cmd_scanlive(ctx: CommandContext, args: str) -> str:
     """Scan channel for active broadcast and connect."""
     target_channel_id = ctx.channel_id
     if not ctx.youtube:
-        return "🍯 Honney: Misayuislive is currently OFFLINE."
+        return "🍯 Honney: I couldn't check the stream right now. Retrying..."
 
     try:
-        live_info = await ctx.youtube.get_active_live_video(target_channel_id)
-        if live_info:
+        result = await ctx.youtube.get_active_live_video(target_channel_id)
+        if result.status == LiveDetectionStatus.LIVE:
             return "🍯 Honney: Live detected! Connecting to chat..."
-        return "🍯 Honney: Misayuislive is currently OFFLINE."
+        elif result.status == LiveDetectionStatus.OFFLINE:
+            return "🍯 Honney: Misayuislive is offline."
+        else:
+            return "🍯 Honney: I couldn't check the stream right now. Retrying..."
     except Exception as e:
         logger.error(f"Error executing !scanlive for channel {target_channel_id}: {e}")
-        return "🍯 Honney: Misayuislive is currently OFFLINE."
+        return "🍯 Honney: I couldn't check the stream right now. Retrying..."
 
 
 # ---------------------------------------------------------------------------

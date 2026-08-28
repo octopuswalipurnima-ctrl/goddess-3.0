@@ -57,7 +57,8 @@ async def test_offline_channel_detection():
     )
 
     res = await stream_mgr.scan_channel(MISAYU_UC_ID)
-    assert res["status"] == "OFFLINE"
+    assert res.status == "OFFLINE"
+    assert res.is_offline is True
     assert MISAYU_UC_ID not in stream_mgr._workers
 
     await stream_mgr.stop()
@@ -141,8 +142,9 @@ async def test_live_detection_and_idempotent_join_message():
 
     # 1. Trigger live scan
     res = await stream_mgr.scan_channel(MISAYU_UC_ID)
-    assert res["status"] == "LIVE"
-    assert res["video_id"] == "misayu_live_vid_1"
+    assert res.status == "LIVE"
+    assert res.is_live is True
+    assert res.video_id == "misayu_live_vid_1"
 
     # Verify worker was started
     assert MISAYU_UC_ID in stream_mgr._workers
@@ -175,7 +177,7 @@ async def test_live_detection_and_idempotent_join_message():
 
     # 2. Trigger second scan (duplicate) -> Must NOT send join message again
     res2 = await stream_mgr.scan_channel(MISAYU_UC_ID)
-    assert res2["status"] == "LIVE"
+    assert res2.status == "LIVE"
     assert len(posted_messages) == 1  # Still exactly 1!
 
     # 3. Simulate WebSub duplicate notification -> Must NOT send join message again
@@ -323,6 +325,105 @@ async def test_stream_conclusion_stops_worker_and_new_stream_creates_new_lifecyc
         s2 = (await session.execute(stmt2)).scalar_one()
         assert s2.status == "LIVE"
         assert s2.youtube_video_id == "vid_session_2"
+
+    await stream_mgr.stop()
+    await yt.close()
+
+
+@pytest.mark.asyncio
+async def test_nawaabo_channel_scan_live_detection():
+    """Verify live detection for channel UCVQ8Qn1JPuZV8VzOgIdUGxQ when active."""
+    nawaabo_id = "UCVQ8Qn1JPuZV8VzOgIdUGxQ"
+
+    class MockNawaaboLiveTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            url_str = str(request.url)
+            if "/youtube/v3/search" in url_str:
+                return httpx.Response(
+                    200,
+                    json={
+                        "items": [
+                            {
+                                "id": {"videoId": "nawaabo_live_vid"},
+                                "snippet": {"title": "Nawaabo Live Stream"},
+                            }
+                        ]
+                    },
+                    request=request,
+                )
+            elif "/youtube/v3/videos" in url_str:
+                return httpx.Response(
+                    200,
+                    json={
+                        "items": [
+                            {
+                                "id": "nawaabo_live_vid",
+                                "liveStreamingDetails": {
+                                    "activeLiveChatId": "chat_nawaabo_live",
+                                },
+                            }
+                        ]
+                    },
+                    request=request,
+                )
+            elif "/youtube/v3/liveChat/messages" in url_str:
+                return httpx.Response(
+                    200,
+                    json={"items": [], "pollingIntervalMillis": 5000},
+                    request=request,
+                )
+            return httpx.Response(404, request=request)
+
+    client = httpx.AsyncClient(transport=MockNawaaboLiveTransport())
+    yt = YouTubeClient(key_pool=YouTubeKeyPool(["k1"]), http_client=client)
+    stream_mgr = StreamManager(
+        youtube_client=yt,
+        gemini_client=GeminiClient(key_pool=GeminiKeyPool([])),
+        outbound_queue=OutboundMessageQueue(youtube_client=yt),
+    )
+
+    res = await stream_mgr.scan_channel(nawaabo_id)
+    assert res.status == "LIVE"
+    assert res.is_live is True
+    assert res.video_id == "nawaabo_live_vid"
+    assert nawaabo_id in stream_mgr._workers
+
+    await stream_mgr.stop()
+    await yt.close()
+
+
+@pytest.mark.asyncio
+async def test_api_error_does_not_mark_channel_offline_in_stream_manager():
+    """Verify that when YouTube API fails with quota/network error, StreamManager does NOT report OFFLINE."""
+    nawaabo_id = "UCVQ8Qn1JPuZV8VzOgIdUGxQ"
+
+    class MockFailingTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                403,
+                json={
+                    "error": {
+                        "code": 403,
+                        "message": "Quota exceeded",
+                        "errors": [{"reason": "quotaExceeded"}],
+                    }
+                },
+                request=request,
+            )
+
+    client = httpx.AsyncClient(transport=MockFailingTransport())
+    yt = YouTubeClient(key_pool=YouTubeKeyPool(["k1"]), http_client=client)
+    stream_mgr = StreamManager(
+        youtube_client=yt,
+        gemini_client=GeminiClient(key_pool=GeminiKeyPool([])),
+        outbound_queue=OutboundMessageQueue(youtube_client=yt),
+    )
+
+    res = await stream_mgr.scan_channel(nawaabo_id)
+    assert res.status != "OFFLINE"
+    assert res.is_offline is False
+    assert res.status == "QUOTA_ERROR"
+    assert res.is_error is True
 
     await stream_mgr.stop()
     await yt.close()
