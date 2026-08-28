@@ -67,6 +67,7 @@ RESERVED_COMMANDS = {
     "!setxp",
     "!setcoins",
     "!setcooldown",
+    "!scanlive",
 }
 
 
@@ -852,6 +853,28 @@ async def cmd_setcooldown(ctx: CommandContext, args: str) -> str:
         return f"✅ Reward cooldown set to {val}s."
     except ValueError:
         return "⚠️ Usage: !setcooldown <seconds>"
+
+
+@registry.register(
+    name="!scanlive",
+    permission=PermissionLevel.MODERATOR,
+    description="Manually scan configured channel for active live stream",
+    usage="!scanlive",
+)
+async def cmd_scanlive(ctx: CommandContext, args: str) -> str:
+    """Scan channel for active broadcast and connect."""
+    target_channel_id = ctx.channel_id
+    if not ctx.youtube:
+        return "🍯 Honney: Misayuislive is currently OFFLINE."
+
+    try:
+        live_info = await ctx.youtube.get_active_live_video(target_channel_id)
+        if live_info:
+            return "🍯 Honney: Live detected! Connecting to chat..."
+        return "🍯 Honney: Misayuislive is currently OFFLINE."
+    except Exception as e:
+        logger.error(f"Error executing !scanlive for channel {target_channel_id}: {e}")
+        return "🍯 Honney: Misayuislive is currently OFFLINE."
 
 
 # ---------------------------------------------------------------------------

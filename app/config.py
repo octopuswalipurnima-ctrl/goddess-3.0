@@ -42,6 +42,9 @@ class ChannelConfig(BaseModel):
     channel_id: str = Field(..., description="YouTube Channel ID, e.g. UCxxxxxxxx")
     enabled: bool = Field(default=True, description="Whether bot is active on this channel")
     name: str = Field(default="Stream Channel", description="Descriptive name")
+    auto_join: bool = Field(
+        default=True, description="Whether bot automatically sends join message upon stream start"
+    )
 
 
 class Settings(BaseSettings):
@@ -93,7 +96,6 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str | None = Field(default=None)
     GOOGLE_CLIENT_SECRET: str | None = Field(default=None)
     GOOGLE_REDIRECT_URI: str = Field(default="http://localhost:8000/oauth2callback")
-
     YOUTUBE_OAUTH_TOKEN: str | None = Field(default=None)
     YOUTUBE_OAUTH_REFRESH_TOKEN: str | None = Field(default=None)
 
@@ -106,6 +108,12 @@ class Settings(BaseSettings):
 
     # Path to channels configuration
     CHANNELS_FILE: str = Field(default="channels.json")
+
+    # Joining Greeting Message
+    JOIN_MESSAGE: str = Field(
+        default="🍯 Honney is here! 👋 Have an awesome stream! 💜",
+        description="Greeting message sent once when bot connects to a live stream",
+    )
 
     # Cooldown & Threshold Defaults
     DEFAULT_XP_PER_MESSAGE: int = 10

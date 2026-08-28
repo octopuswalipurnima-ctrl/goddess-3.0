@@ -390,7 +390,9 @@ class OAuthManager:
         self.client_secret = client_secret.strip() if client_secret else None
         self._access_token = access_token.strip() if access_token else None
         self._refresh_token = refresh_token.strip() if refresh_token else None
-        self._expires_at: datetime | None = None
+        self._expires_at: datetime | None = (
+            datetime.now(UTC) + timedelta(seconds=3600) if self._access_token else None
+        )
         self._lock = asyncio.Lock()
         self.is_reauth_required: bool = False
 

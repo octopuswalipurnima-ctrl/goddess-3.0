@@ -106,6 +106,7 @@ class Stream(Base):
     status: Mapped[str] = mapped_column(
         String(32), default="OFFLINE", nullable=False
     )  # OFFLINE, DETECTED, CONNECTING, LIVE, ENDING, ENDED, ERROR
+    join_message_sent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)

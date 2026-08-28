@@ -2,21 +2,25 @@
   {
     "channel_id": "UCGH_osSgL2FCsBYe6XMxlSQ",
     "enabled": true,
-    "name": "GODDESS IS LIVE"
+    "name": "GODDESS IS LIVE",
+    "auto_join": true
   },
   {
     "channel_id": "UCCMwadkzXrznmMpZd5ek6PA",
     "enabled": true,
-    "name": "MissAyuislive"
+    "name": "MissAyuislive",
+    "auto_join": true
   },
   {
     "channel_id": "UCVQ8Qn1JPuZV8VzOgIdUGxQ",
     "enabled": true,
-    "name": "nawaabo_is_live"
+    "name": "nawaabo_is_live",
+    "auto_join": true
   },
   {
     "channel_id": "UCf4bzltnoyrCM_SAXLTfvAg",
     "enabled": true,
-    "name": "Winxy"
+    "name": "Winxy",
+    "auto_join": true
   }
 ]

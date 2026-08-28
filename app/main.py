@@ -70,6 +70,10 @@ async def _reconcile_channels() -> None:
         # Start stream manager and WebSub manager
         if stream_manager:
             stream_manager.start()
+            logger.info(
+                "STARTUP: Performing immediate initial live stream scan across configured channels..."
+            )
+            await stream_manager.scan_all_channels_now()
         if websub_manager:
             websub_manager.start()
         logger.info("STARTUP: background stream discovery and WebSub active")

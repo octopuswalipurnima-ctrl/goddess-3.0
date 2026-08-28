@@ -15,6 +15,7 @@ from app.database import get_session
 from app.economy import process_message_reward
 from app.gemini import GeminiClient
 from app.models import (
+    AuditLog,
     ChannelSettings,
     ChatMessage,
     OneVOneQueueEntry,
@@ -372,28 +373,33 @@ class StreamManager:
         logger.info(f"WebSub notification for channel={channel_id} video={video_id}")
         await self._check_and_start_stream(channel_id, video_id)
 
-    async def _check_and_start_stream(self, channel_id: str, video_id: str, title: str | None = None) -> None:
-        """Resolve liveChatId and start ChatWorker if not already running."""
+    async def _check_and_start_stream(self, channel_id: str, video_id: str, title: str | None = None) -> bool:
+        """Resolve liveChatId, start ChatWorker, and send idempotent join greeting if needed."""
+        is_misayu = channel_id == "UCCMwadkzXrznmMpZd5ek6PA"
+        prefix = "[MISAYUISLIVE SCAN]" if is_misayu else f"[{channel_id} SCAN]"
+
         async with self._lock:
             if (
                 channel_id in self._workers
                 and self._workers[channel_id]._running
                 and self._workers[channel_id].video_id == video_id
             ):
-                return
+                return True
 
             # Resolve liveChatId
             live_chat_id = await self.youtube.get_live_chat_id(video_id)
             if not live_chat_id:
-                logger.info(f"Video {video_id} does not have an active live chat. Not a live stream.")
-                return
+                logger.info(
+                    f"[LIVE CHAT RESOLUTION] Video {video_id} has no active live chat. Not a live stream."
+                )
+                return False
 
             logger.info(
-                f"STREAM DETECTED:\n"
-                f"  Channel ID: {channel_id}\n"
+                f"{prefix} Status: LIVE\n"
                 f"  Video ID: {video_id}\n"
+                f"[LIVE CHAT RESOLUTION] Status: SUCCESS\n"
                 f"  Live Chat ID: {live_chat_id}\n"
-                f"  Chat Worker: STARTING"
+                f"[CHAT WORKER] Status: STARTING"
             )
 
             # Persist or update Stream in DB
@@ -412,6 +418,7 @@ class StreamManager:
                         live_chat_id=live_chat_id,
                         title=title,
                         status="LIVE",
+                        join_message_sent=False,
                         started_at=datetime.now(UTC),
                         created_at=datetime.now(UTC),
                     )
@@ -423,6 +430,7 @@ class StreamManager:
                     stream.updated_at = datetime.now(UTC)
 
                 stream_id = stream.id
+                should_send_join = not stream.join_message_sent
 
             # Stop existing worker if running for different video
             if channel_id in self._workers:
@@ -440,7 +448,77 @@ class StreamManager:
             )
             self._workers[channel_id] = worker
             worker.start()
-            logger.info(f"Chat Worker STARTED for stream {stream_id} (video={video_id})")
+            logger.info(f"[CHAT WORKER] Status: STARTED for stream {stream_id} (video={video_id})")
+
+            # -------------------------------------------------------------------
+            # Idempotent Join Greeting Message
+            # -------------------------------------------------------------------
+            if should_send_join and self.youtube.oauth.is_configured:
+                join_msg = settings.JOIN_MESSAGE
+                logger.info(f"[HONNEY] Attempting to send join greeting to {live_chat_id}: '{join_msg}'")
+                try:
+                    resp = await self.youtube.post_chat_message(live_chat_id, join_msg)
+                    if resp:
+                        async with get_session() as session:
+                            s_stmt = select(Stream).where(Stream.id == stream_id)
+                            s_res = await session.execute(s_stmt)
+                            s_obj = s_res.scalar_one_or_none()
+                            if s_obj:
+                                s_obj.join_message_sent = True
+
+                            # Record as SYSTEM_JOIN_MESSAGE in audit_logs
+                            audit = AuditLog(
+                                channel_id=channel_id,
+                                stream_id=stream_id,
+                                actor_user_id="SYSTEM",
+                                actor_username="Honney",
+                                command="SYSTEM_JOIN_MESSAGE",
+                                safe_arguments=join_msg,
+                                target_user_id=None,
+                                target_username=None,
+                                result="SUCCESS",
+                            )
+                            session.add(audit)
+                        logger.info(f"[HONNEY] Join message: SENT -> '{join_msg}'")
+                    else:
+                        logger.warning("[HONNEY] Join message could not be sent (OAuth post returned None).")
+                except Exception as e:
+                    logger.error(f"[HONNEY] Exception sending join message: {e}", exc_info=True)
+            elif not should_send_join:
+                logger.info(f"[HONNEY] Join message already sent for video {video_id}. Skipping.")
+
+            return True
+
+    async def scan_channel(self, channel_id: str) -> dict[str, Any]:
+        """Scan a single channel by its permanent UC ID for an active live broadcast."""
+        is_misayu = channel_id == "UCCMwadkzXrznmMpZd5ek6PA"
+        prefix = "[MISAYUISLIVE SCAN]" if is_misayu else f"[{channel_id} SCAN]"
+        logger.info(f"{prefix}\n  Channel ID: {channel_id}\n  Status: CHECKING")
+
+        try:
+            live_info = await self.youtube.get_active_live_video(channel_id)
+            if live_info:
+                vid = live_info.get("video_id")
+                title = live_info.get("title")
+                logger.info(f"{prefix}\n  Status: LIVE\n  Video ID: {vid}")
+                if vid:
+                    await self._check_and_start_stream(channel_id, vid, title)
+                return {"status": "LIVE", "video_id": vid, "title": title}
+            else:
+                logger.info(f"{prefix}\n  Status: OFFLINE")
+                return {"status": "OFFLINE"}
+        except Exception as e:
+            logger.warning(f"{prefix}\n  Status: API_ERROR\n  Error: {e}")
+            return {"status": "API_ERROR", "error": str(e)}
+
+    async def scan_all_channels_now(self) -> dict[str, Any]:
+        """Scan all enabled channels immediately (e.g. at startup or on manual trigger)."""
+        channels = settings.load_channels()
+        results = {}
+        for ch in channels:
+            res = await self.scan_channel(ch.channel_id)
+            results[ch.channel_id] = res
+        return results
 
     async def _periodic_discovery_loop(self) -> None:
         """Periodic safety net to discover active live streams with exponential backoff on errors."""
@@ -467,12 +545,7 @@ class StreamManager:
 
                     # Search active live stream
                     any_checked = True
-                    live_info = await self.youtube.get_active_live_video(ch.channel_id)
-                    if live_info:
-                        vid = live_info.get("video_id")
-                        title = live_info.get("title")
-                        if vid:
-                            await self._check_and_start_stream(ch.channel_id, vid, title)
+                    await self.scan_channel(ch.channel_id)
 
                 # If successful check, reset backoff to normal 120s interval
                 if any_checked:
