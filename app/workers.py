@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
 
 import httpx
@@ -26,6 +27,16 @@ from app.utils import get_logger, normalize_text
 from app.youtube import LiveDetectionResult, LiveDetectionStatus, YouTubeClient
 
 logger = get_logger("goddess.workers")
+
+
+class WorkerState(StrEnum):
+    """Lifecycle states for ChatWorker instances."""
+
+    STOPPED = "STOPPED"
+    STARTING = "STARTING"
+    RUNNING = "RUNNING"
+    STOPPING = "STOPPING"
+    FAILED = "FAILED"
 
 
 class OutboundMessageQueue:
@@ -111,6 +122,8 @@ class ChatWorker:
         self.moderation_engine = ModerationEngine(gemini_client, youtube_client)
 
         self._running: bool = False
+        self.state: WorkerState = WorkerState.STOPPED
+        self._first_poll_done: bool = False
         self._task: asyncio.Task[None] | None = None
         self._seen_messages: set[str] = set()  # In-memory deduplication cache
         self._last_cohost_reply_at: float = 0.0
@@ -119,16 +132,26 @@ class ChatWorker:
     def start(self) -> None:
         if not self._running:
             self._running = True
+            self.state = WorkerState.STARTING
+            logger.info(
+                f"[CHAT WORKER]\n"
+                f"  channel_id={self.channel_id}\n"
+                f"  video_id={self.video_id}\n"
+                f"  live_chat_id={self.live_chat_id}\n"
+                f"  stream_id={self.stream_id}\n"
+                f"  status=STARTING"
+            )
             self._task = asyncio.create_task(self._poll_loop())
-            logger.info(f"Started ChatWorker for channel={self.channel_id} video={self.video_id}")
 
     async def stop(self) -> None:
         self._running = False
+        self.state = WorkerState.STOPPING
         if self._task:
             self._task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-        logger.info(f"Stopped ChatWorker for channel={self.channel_id} video={self.video_id}")
+        self.state = WorkerState.STOPPED
+        logger.info(f"[CHAT WORKER] Stopped worker for channel={self.channel_id} video={self.video_id}")
 
     async def _poll_loop(self) -> None:
         next_page_token: str | None = None
@@ -146,25 +169,49 @@ class ChatWorker:
                 )
                 consecutive_errors = 0
 
+                if not self._first_poll_done:
+                    self._first_poll_done = True
+                    self.state = WorkerState.RUNNING
+                    logger.info(
+                        f"[CHAT POLLER]\n"
+                        f"  FIRST_POLL\n"
+                        f"  live_chat_id={self.live_chat_id}\n"
+                        f"  status=SUCCESS\n"
+                        f"  messages_received={len(items)}"
+                    )
+                    logger.info("[CHAT WORKER] status=RUNNING")
+
                 # Process all retrieved messages
                 for item in items:
                     try:
                         await self._process_single_message(item)
                     except Exception as e:
-                        logger.error(f"Error processing chat message: {e}")
+                        logger.error(f"Error processing chat message: {e}", exc_info=True)
 
                 # Respect YouTube's returned polling interval (convert ms to seconds)
                 sleep_seconds = max(1.0, min(30.0, polling_interval / 1000.0))
                 await asyncio.sleep(sleep_seconds)
 
             except asyncio.CancelledError:
+                self.state = WorkerState.STOPPED
                 break
             except Exception as e:
                 consecutive_errors += 1
-                logger.warning(
-                    f"Error polling chat for stream {self.stream_id} (error #{consecutive_errors}): {e}"
-                )
+                if not self._first_poll_done:
+                    logger.warning(
+                        f"[CHAT POLLER]\n"
+                        f"  FIRST_POLL\n"
+                        f"  live_chat_id={self.live_chat_id}\n"
+                        f"  status=FAILED\n"
+                        f"  error={e}\n"
+                        f"  retry_in={min(30.0, 3.0 * consecutive_errors)}s"
+                    )
+                else:
+                    logger.warning(
+                        f"Error polling chat for stream {self.stream_id} (error #{consecutive_errors}): {e}"
+                    )
                 if consecutive_errors >= 10:
+                    self.state = WorkerState.FAILED
                     logger.error(f"ChatWorker for stream {self.stream_id} stopping due to repeated failures.")
                     await self._handle_stream_end()
                     break
@@ -403,34 +450,52 @@ class StreamManager:
             )
 
             # Persist or update Stream in DB
-            async with get_session() as session:
-                stmt = select(Stream).where(
-                    Stream.channel_id == channel_id,
-                    Stream.youtube_video_id == video_id,
-                )
-                res = await session.execute(stmt)
-                stream = res.scalar_one_or_none()
-
-                if not stream:
-                    stream = Stream(
-                        channel_id=channel_id,
-                        youtube_video_id=video_id,
-                        live_chat_id=live_chat_id,
-                        title=title,
-                        status="LIVE",
-                        join_message_sent=False,
-                        started_at=datetime.now(UTC),
-                        created_at=datetime.now(UTC),
+            try:
+                async with get_session() as session:
+                    stmt = select(Stream).where(
+                        Stream.channel_id == channel_id,
+                        Stream.youtube_video_id == video_id,
                     )
-                    session.add(stream)
-                    await session.flush()
-                else:
-                    stream.live_chat_id = live_chat_id
-                    stream.status = "LIVE"
-                    stream.updated_at = datetime.now(UTC)
+                    res = await session.execute(stmt)
+                    stream = res.scalar_one_or_none()
 
-                stream_id = stream.id
-                should_send_join = not stream.join_message_sent
+                    if not stream:
+                        stream = Stream(
+                            channel_id=channel_id,
+                            youtube_video_id=video_id,
+                            live_chat_id=live_chat_id,
+                            title=title,
+                            status="LIVE",
+                            join_message_sent=False,
+                            started_at=datetime.now(UTC),
+                            created_at=datetime.now(UTC),
+                        )
+                        session.add(stream)
+                        await session.flush()
+                        logger.info(f"[STREAM DB] Status: READY (Created new stream ID: {stream.id})")
+                    else:
+                        stream.live_chat_id = live_chat_id
+                        stream.status = "LIVE"
+                        if title and not stream.title:
+                            stream.title = title
+                        stream.updated_at = datetime.now(UTC)
+                        logger.info(
+                            f"[STREAM DB] Status: READY (Updated existing stream ID: {stream.id}, join_message_sent={stream.join_message_sent})"
+                        )
+
+                    stream_id = stream.id
+                    should_send_join = not stream.join_message_sent
+
+            except Exception as e:
+                logger.error(
+                    f"[STREAM DB] FAILED\n"
+                    f"  operation=get_or_create_stream\n"
+                    f"  channel_id={channel_id}\n"
+                    f"  video_id={video_id}\n"
+                    f"  error={e}",
+                    exc_info=True,
+                )
+                return False
 
             # Stop existing worker if running for different video
             if channel_id in self._workers:
@@ -448,44 +513,50 @@ class StreamManager:
             )
             self._workers[channel_id] = worker
             worker.start()
-            logger.info(f"[CHAT WORKER] Status: STARTED for stream {stream_id} (video={video_id})")
 
             # -------------------------------------------------------------------
-            # Idempotent Join Greeting Message
+            # Idempotent Join Greeting Message State Machine
             # -------------------------------------------------------------------
-            if should_send_join and self.youtube.oauth.is_configured:
-                join_msg = settings.JOIN_MESSAGE
-                logger.info(f"[HONNEY] Attempting to send join greeting to {live_chat_id}: '{join_msg}'")
-                try:
-                    resp = await self.youtube.post_chat_message(live_chat_id, join_msg)
-                    if resp:
-                        async with get_session() as session:
-                            s_stmt = select(Stream).where(Stream.id == stream_id)
-                            s_res = await session.execute(s_stmt)
-                            s_obj = s_res.scalar_one_or_none()
-                            if s_obj:
-                                s_obj.join_message_sent = True
+            logger.info(f"[JOIN MESSAGE]\n  status=CHECKING\n  already_sent={not should_send_join}")
 
-                            # Record as SYSTEM_JOIN_MESSAGE in audit_logs
-                            audit = AuditLog(
-                                channel_id=channel_id,
-                                stream_id=stream_id,
-                                actor_user_id="SYSTEM",
-                                actor_username="Honney",
-                                command="SYSTEM_JOIN_MESSAGE",
-                                safe_arguments=join_msg,
-                                target_user_id=None,
-                                target_username=None,
-                                result="SUCCESS",
+            if should_send_join:
+                if self.youtube.oauth.is_configured:
+                    join_msg = settings.JOIN_MESSAGE
+                    logger.info(f"[JOIN MESSAGE]\n  status=SENDING\n  live_chat_id={live_chat_id}")
+                    try:
+                        resp = await self.youtube.post_chat_message(live_chat_id, join_msg)
+                        if resp:
+                            async with get_session() as session:
+                                s_stmt = select(Stream).where(Stream.id == stream_id)
+                                s_res = await session.execute(s_stmt)
+                                s_obj = s_res.scalar_one_or_none()
+                                if s_obj:
+                                    s_obj.join_message_sent = True
+
+                                # Record as SYSTEM_JOIN_MESSAGE in audit_logs
+                                audit = AuditLog(
+                                    channel_id=channel_id,
+                                    stream_id=stream_id,
+                                    actor_user_id="SYSTEM",
+                                    actor_username="Honney",
+                                    command="SYSTEM_JOIN_MESSAGE",
+                                    safe_arguments=join_msg,
+                                    target_user_id=None,
+                                    target_username=None,
+                                    result="SUCCESS",
+                                )
+                                session.add(audit)
+                            logger.info(f"[JOIN MESSAGE]\n  status=SENT\n  message='{join_msg}'")
+                        else:
+                            logger.warning(
+                                "[JOIN MESSAGE]\n  status=FAILED\n  reason=post_chat_message returned None"
                             )
-                            session.add(audit)
-                        logger.info(f"[HONNEY] Join message: SENT -> '{join_msg}'")
-                    else:
-                        logger.warning("[HONNEY] Join message could not be sent (OAuth post returned None).")
-                except Exception as e:
-                    logger.error(f"[HONNEY] Exception sending join message: {e}", exc_info=True)
-            elif not should_send_join:
-                logger.info(f"[HONNEY] Join message already sent for video {video_id}. Skipping.")
+                    except Exception as e:
+                        logger.error(f"[JOIN MESSAGE]\n  status=FAILED\n  error={e}", exc_info=True)
+                else:
+                    logger.warning("[JOIN MESSAGE]\n  status=SKIPPED\n  reason=OAuth not configured")
+            else:
+                logger.info(f"[JOIN MESSAGE]\n  status=SKIPPED\n  reason=already_sent for video {video_id}")
 
             return True
 
@@ -537,8 +608,15 @@ class StreamManager:
         channels = settings.load_channels()
         results: dict[str, LiveDetectionResult] = {}
         for ch in channels:
-            res = await self.scan_channel(ch.channel_id)
-            results[ch.channel_id] = res
+            try:
+                res = await self.scan_channel(ch.channel_id)
+                results[ch.channel_id] = res
+            except Exception as e:
+                logger.error(
+                    f"Error during channel scan for {ch.channel_id} ({ch.name}): {e}",
+                    extra={"channel_id": ch.channel_id, "operation": "scan_channel"},
+                    exc_info=True,
+                )
         return results
 
     async def _periodic_discovery_loop(self) -> None:

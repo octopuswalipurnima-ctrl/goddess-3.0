@@ -152,7 +152,6 @@ def upgrade() -> None:
         sa.Column("live_chat_id", sa.String(length=128), nullable=True),
         sa.Column("title", sa.String(length=256), nullable=True),
         sa.Column("status", sa.String(length=32), nullable=False, server_default="OFFLINE"),
-        sa.Column("join_message_sent", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("ended_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column(

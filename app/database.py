@@ -118,6 +118,88 @@ async def verify_database_connection(timeout_seconds: float = 5.0) -> tuple[bool
         return False, msg
 
 
+async def verify_database_schema(timeout_seconds: float = 5.0) -> tuple[bool, list[str]]:
+    """
+    Verify that critical tables and columns exist in the database.
+    Catches schema drift (e.g. unapplied migrations) before workers attempt database operations.
+    """
+    global engine
+    safe_url = settings.get_database_url_safe()
+    if not safe_url:
+        return False, ["Database URL is not configured."]
+
+    if engine is None:
+        try:
+            init_engine()
+        except Exception as e:
+            return False, [f"Engine initialization failed: {e}"]
+    if engine is None:
+        return False, ["Database engine is not initialized."]
+
+    missing: list[str] = []
+
+    try:
+        async with asyncio.timeout(timeout_seconds):
+            async with engine.connect() as conn:
+
+                def _inspect(sync_conn: Any) -> list[str]:
+                    from sqlalchemy import inspect
+
+                    inspector = inspect(sync_conn)
+                    existing_tables = set(inspector.get_table_names())
+                    missing_items: list[str] = []
+
+                    required_tables = [
+                        "channels",
+                        "channel_settings",
+                        "users",
+                        "streams",
+                        "chat_messages",
+                        "commands",
+                        "audit_logs",
+                    ]
+                    for table in required_tables:
+                        if table not in existing_tables:
+                            missing_items.append(f"table '{table}'")
+                        elif table == "streams":
+                            cols = {c["name"] for c in inspector.get_columns(table)}
+                            required_stream_cols = [
+                                "id",
+                                "channel_id",
+                                "youtube_video_id",
+                                "live_chat_id",
+                                "status",
+                                "join_message_sent",
+                            ]
+                            for col in required_stream_cols:
+                                if col not in cols:
+                                    missing_items.append(f"column 'streams.{col}'")
+
+                    return missing_items
+
+                missing = await conn.run_sync(_inspect)
+
+        if missing:
+            logger.error(
+                f"DATABASE SCHEMA INTEGRITY: FAILED\n"
+                f"  Missing: {', '.join(missing)}\n"
+                f"  Required action: Run pending migrations (`alembic upgrade head`) before starting workers."
+            )
+            return False, missing
+
+        logger.info(
+            "DATABASE SCHEMA INTEGRITY: READY\n"
+            "  streams table: PASS\n"
+            "  streams.join_message_sent: PASS\n"
+            "  streams.youtube_video_id: PASS\n"
+            "  streams.live_chat_id: PASS"
+        )
+        return True, []
+    except Exception as e:
+        logger.error(f"DATABASE SCHEMA INTEGRITY: FAILED (exception during inspection: {e})")
+        return False, [str(e)]
+
+
 async def close_engine() -> None:
     """Gracefully dispose of the database engine."""
     global engine, async_session_factory

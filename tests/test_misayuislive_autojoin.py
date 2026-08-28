@@ -10,10 +10,14 @@ from app.database import get_session
 from app.gemini import GeminiClient, GeminiKeyPool
 from app.models import AuditLog, ChannelSettings, Stream
 from app.workers import (
+    ChatWorker,
     OutboundMessageQueue,
     StreamManager,
+    WorkerState,
 )
 from app.youtube import (
+    LiveDetectionResult,
+    LiveDetectionStatus,
     OAuthManager,
     YouTubeClient,
     YouTubeKeyPool,
@@ -424,6 +428,135 @@ async def test_api_error_does_not_mark_channel_offline_in_stream_manager():
     assert res.is_offline is False
     assert res.status == "QUOTA_ERROR"
     assert res.is_error is True
+
+    await stream_mgr.stop()
+    await yt.close()
+
+
+@pytest.mark.asyncio
+async def test_join_message_failure_preserves_false_state():
+    """Verify that if post_chat_message fails, join_message_sent remains False and can retry."""
+    channel_id = "UCCMwadkzXrznmMpZd5ek6PA"
+    video_id = "vid_fail_join_1"
+
+    class MockFailJoinTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            url_str = str(request.url)
+            if "/youtube/v3/search" in url_str:
+                return httpx.Response(
+                    200,
+                    json={"items": [{"id": {"videoId": video_id}, "snippet": {"title": "Test"}}]},
+                    request=request,
+                )
+            elif "/youtube/v3/videos" in url_str:
+                return httpx.Response(
+                    200,
+                    json={
+                        "items": [
+                            {"id": video_id, "liveStreamingDetails": {"activeLiveChatId": "chat_fail_1"}}
+                        ]
+                    },
+                    request=request,
+                )
+            elif "/youtube/v3/liveChat/messages" in url_str and request.method == "POST":
+                # Simulate 403 Forbidden on message insert
+                return httpx.Response(403, json={"error": {"message": "Chat disabled"}}, request=request)
+            elif "/youtube/v3/liveChat/messages" in url_str and request.method == "GET":
+                return httpx.Response(200, json={"items": [], "pollingIntervalMillis": 5000}, request=request)
+            return httpx.Response(404, request=request)
+
+    client = httpx.AsyncClient(transport=MockFailJoinTransport())
+    oauth_mgr = OAuthManager(
+        client_id="cid",
+        client_secret="sec",
+        access_token="tok",
+        refresh_token="ref",
+    )
+    yt = YouTubeClient(key_pool=YouTubeKeyPool(["k1"]), oauth_manager=oauth_mgr, http_client=client)
+    stream_mgr = StreamManager(
+        youtube_client=yt,
+        gemini_client=GeminiClient(key_pool=GeminiKeyPool([])),
+        outbound_queue=OutboundMessageQueue(youtube_client=yt),
+    )
+
+    res = await stream_mgr.scan_channel(channel_id)
+    assert res.status == "LIVE"
+
+    # Database check: join_message_sent MUST be False
+    async with get_session() as session:
+        stmt = select(Stream).where(Stream.youtube_video_id == video_id)
+        s_obj = (await session.execute(stmt)).scalar_one()
+        assert s_obj.join_message_sent is False
+
+    await stream_mgr.stop()
+    await yt.close()
+
+
+@pytest.mark.asyncio
+async def test_chat_worker_lifecycle_states():
+    """Verify ChatWorker lifecycle state transitions: STOPPED -> STARTING -> RUNNING -> STOPPED."""
+
+    class MockPollTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={
+                    "items": [{"id": "msg_1", "snippet": {"displayMessage": "Hi"}}],
+                    "pollingIntervalMillis": 5000,
+                },
+                request=request,
+            )
+
+    client = httpx.AsyncClient(transport=MockPollTransport())
+    yt = YouTubeClient(key_pool=YouTubeKeyPool(["k1"]), http_client=client)
+    outbound = OutboundMessageQueue(youtube_client=yt)
+    worker = ChatWorker(
+        channel_id="UC_TEST",
+        video_id="VID_TEST",
+        live_chat_id="CHAT_TEST",
+        stream_id=999,
+        youtube_client=yt,
+        gemini_client=GeminiClient(key_pool=GeminiKeyPool([])),
+        outbound_queue=outbound,
+    )
+
+    assert worker.state == WorkerState.STOPPED
+    worker.start()
+    assert worker.state in (WorkerState.STARTING, WorkerState.RUNNING)
+
+    # Let the first poll loop tick
+    import asyncio
+
+    await asyncio.sleep(0.05)
+    assert worker.state == WorkerState.RUNNING
+    assert worker._first_poll_done is True
+
+    await worker.stop()
+    assert worker.state == WorkerState.STOPPED
+    await yt.close()
+
+
+@pytest.mark.asyncio
+async def test_channel_reconciliation_error_isolation(monkeypatch):
+    """Verify that if one channel throws an unhandled database/API exception, other channels still reconcile."""
+    yt = YouTubeClient(key_pool=YouTubeKeyPool(["k1"]))
+    stream_mgr = StreamManager(
+        youtube_client=yt,
+        gemini_client=GeminiClient(key_pool=GeminiKeyPool([])),
+        outbound_queue=OutboundMessageQueue(youtube_client=yt),
+    )
+
+    async def mock_scan(channel_id: str) -> LiveDetectionResult:
+        if channel_id == "UCCMwadkzXrznmMpZd5ek6PA":
+            raise RuntimeError("Simulated database timeout on channel scan")
+        return LiveDetectionResult(status=LiveDetectionStatus.OFFLINE, channel_id=channel_id)
+
+    monkeypatch.setattr(stream_mgr, "scan_channel", mock_scan)
+
+    results = await stream_mgr.scan_all_channels_now()
+    # The failing channel did not abort the loop:
+    assert "UCVQ8Qn1JPuZV8VzOgIdUGxQ" in results
+    assert results["UCVQ8Qn1JPuZV8VzOgIdUGxQ"].status == "OFFLINE"
 
     await stream_mgr.stop()
     await yt.close()

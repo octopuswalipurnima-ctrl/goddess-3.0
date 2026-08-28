@@ -17,6 +17,7 @@ from app.database import (
     get_session,
     init_engine,
     verify_database_connection,
+    verify_database_schema,
 )
 from app.gemini import GeminiClient, GeminiKeyPool
 from app.models import Channel, ChannelSettings
@@ -41,31 +42,43 @@ _background_tasks: list[asyncio.Task[Any]] = []
 
 
 async def _reconcile_channels() -> None:
-    """Non-blocking background channel reconciliation and discovery."""
+    """Non-blocking background channel reconciliation and discovery with per-channel error isolation."""
     try:
         logger.info("STARTUP: channel reconciliation beginning")
-        async with get_session() as session:
-            channels_config = settings.load_channels()
-            for ch_cfg in channels_config:
-                stmt = select(Channel).where(Channel.channel_id == ch_cfg.channel_id)
-                res = await session.execute(stmt)
-                ch = res.scalar_one_or_none()
-                if not ch:
-                    ch = Channel(
-                        channel_id=ch_cfg.channel_id,
-                        name=ch_cfg.name,
-                        enabled=ch_cfg.enabled,
-                    )
-                    session.add(ch)
-                    await session.flush()
-                    # Create default settings
-                    s = ChannelSettings(channel_id=ch_cfg.channel_id)
-                    session.add(s)
-                else:
-                    ch.name = ch_cfg.name
-                    ch.enabled = ch_cfg.enabled
+        channels_config = settings.load_channels()
+        synced_count = 0
 
-        logger.info(f"STARTUP: channel reconciliation completed ({len(channels_config)} channels synced)")
+        for ch_cfg in channels_config:
+            try:
+                async with get_session() as session:
+                    stmt = select(Channel).where(Channel.channel_id == ch_cfg.channel_id)
+                    res = await session.execute(stmt)
+                    ch = res.scalar_one_or_none()
+                    if not ch:
+                        ch = Channel(
+                            channel_id=ch_cfg.channel_id,
+                            name=ch_cfg.name,
+                            enabled=ch_cfg.enabled,
+                        )
+                        session.add(ch)
+                        await session.flush()
+                        # Create default settings
+                        s = ChannelSettings(channel_id=ch_cfg.channel_id)
+                        session.add(s)
+                    else:
+                        ch.name = ch_cfg.name
+                        ch.enabled = ch_cfg.enabled
+                synced_count += 1
+            except Exception as e:
+                logger.error(
+                    f"Error reconciling database record for channel {ch_cfg.channel_id} ({ch_cfg.name}): {e}",
+                    extra={"channel_id": ch_cfg.channel_id, "operation": "reconcile_channel"},
+                    exc_info=True,
+                )
+
+        logger.info(
+            f"STARTUP: channel reconciliation completed ({synced_count}/{len(channels_config)} channels synced)"
+        )
 
         # Start stream manager and WebSub manager
         if stream_manager:
@@ -90,7 +103,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("STARTUP: process beginning")
     settings.log_summary()
 
-    # 1. Database initialization and connectivity verification
+    # 1. Database initialization, connectivity verification, and schema integrity check
     logger.info("STARTUP: database initialization beginning")
     try:
         init_engine()
@@ -104,6 +117,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     f"Production database connection failure: {db_diag}. "
                     "Verify DATABASE_URL is set in your Railway service variables."
                 )
+
+        schema_ok, missing_schema = await verify_database_schema(timeout_seconds=5.0)
+        if not schema_ok:
+            logger.error(
+                f"DATABASE SCHEMA INTEGRITY: NOT READY\n"
+                f"  Missing: {', '.join(missing_schema)}\n"
+                f"  Action: Run pending migrations (`alembic upgrade head`) before starting workers."
+            )
         logger.info("STARTUP: schema validation completed")
     except Exception as e:
         logger.error(f"FATAL: Database startup error: {e}", exc_info=True)
@@ -219,15 +240,18 @@ async def health_live() -> dict[str, str]:
 
 @app.get("/health")
 async def health_check() -> dict[str, Any]:
-    """Detailed process health and database connectivity report."""
+    """Detailed process health, database connectivity, and schema report."""
     is_configured = bool(settings.get_database_url_safe())
     db_ok, db_diag = await verify_database_connection(timeout_seconds=2.0)
+    schema_ok, missing_schema = await verify_database_schema(timeout_seconds=2.0)
     yt_summary = youtube_client.key_pool.get_status_summary() if youtube_client else []
     return {
-        "status": "ok" if db_ok else "degraded",
+        "status": "ok" if (db_ok and schema_ok) else "degraded",
         "database": {
             "configured": is_configured,
             "connected": db_ok,
+            "schema_ready": schema_ok,
+            "missing_schema": missing_schema,
             "detail": db_diag,
         },
         "youtube_key_pool": yt_summary,
@@ -236,22 +260,27 @@ async def health_check() -> dict[str, Any]:
 
 @app.get("/health/ready")
 async def readiness_check() -> dict[str, Any]:
-    """Deep readiness check validating database, API pools, and OAuth."""
+    """Deep readiness check validating database connectivity, schema integrity, API pools, and OAuth."""
     is_configured = bool(settings.get_database_url_safe())
     db_ok, db_diag = await verify_database_connection(timeout_seconds=3.0)
+    schema_ok, missing_schema = await verify_database_schema(timeout_seconds=2.0)
 
     yt_healthy = youtube_client.key_pool.get_healthy_count() if youtube_client else 0
     gemini_healthy = gemini_client.key_pool.get_healthy_count() if gemini_client else 0
     oauth_ready = youtube_client.oauth.is_configured if youtube_client else False
     yt_summary = youtube_client.key_pool.get_status_summary() if youtube_client else []
 
-    is_ready = db_ok and (yt_healthy > 0 or gemini_healthy > 0 or not settings.get_youtube_keys())
+    is_ready = (
+        db_ok and schema_ok and (yt_healthy > 0 or gemini_healthy > 0 or not settings.get_youtube_keys())
+    )
 
     response_data = {
         "status": "ready" if is_ready else "degraded",
         "database": {
             "configured": is_configured,
             "connected": db_ok,
+            "schema_ready": schema_ok,
+            "missing_schema": missing_schema,
             "detail": db_diag,
         },
         "youtube_api_keys_healthy": yt_healthy,
