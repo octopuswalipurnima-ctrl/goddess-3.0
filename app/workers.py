@@ -388,6 +388,14 @@ class StreamManager:
                 logger.info(f"Video {video_id} does not have an active live chat. Not a live stream.")
                 return
 
+            logger.info(
+                f"STREAM DETECTED:\n"
+                f"  Channel ID: {channel_id}\n"
+                f"  Video ID: {video_id}\n"
+                f"  Live Chat ID: {live_chat_id}\n"
+                f"  Chat Worker: STARTING"
+            )
+
             # Persist or update Stream in DB
             async with get_session() as session:
                 stmt = select(Stream).where(
@@ -432,12 +440,24 @@ class StreamManager:
             )
             self._workers[channel_id] = worker
             worker.start()
+            logger.info(f"Chat Worker STARTED for stream {stream_id} (video={video_id})")
 
     async def _periodic_discovery_loop(self) -> None:
-        """Periodic safety net to discover active live streams across all configured channels."""
+        """Periodic safety net to discover active live streams with exponential backoff on errors."""
+        backoff_seconds = 60.0
         while self._running:
             try:
+                # Check if at least one YouTube key is ready
+                if self.youtube.key_pool.get_healthy_count() == 0:
+                    logger.warning(
+                        "Periodic stream discovery skipped: All YouTube API keys are in cooldown/unavailable."
+                    )
+                    await asyncio.sleep(backoff_seconds)
+                    backoff_seconds = min(backoff_seconds * 1.5, 300.0)
+                    continue
+
                 channels = settings.load_channels()
+                any_checked = False
                 for ch in channels:
                     if not self._running:
                         break
@@ -446,6 +466,7 @@ class StreamManager:
                         continue
 
                     # Search active live stream
+                    any_checked = True
                     live_info = await self.youtube.get_active_live_video(ch.channel_id)
                     if live_info:
                         vid = live_info.get("video_id")
@@ -453,12 +474,18 @@ class StreamManager:
                         if vid:
                             await self._check_and_start_stream(ch.channel_id, vid, title)
 
-                await asyncio.sleep(120.0)  # Check every 2 minutes
+                # If successful check, reset backoff to normal 120s interval
+                if any_checked:
+                    backoff_seconds = 60.0
+                await asyncio.sleep(120.0)
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.warning(f"Error in periodic stream discovery loop: {e}")
-                await asyncio.sleep(60.0)
+                logger.warning(
+                    f"Error in periodic stream discovery loop (backoff {backoff_seconds:.0f}s): {e}"
+                )
+                await asyncio.sleep(backoff_seconds)
+                backoff_seconds = min(backoff_seconds * 1.5, 300.0)
 
 
 # ---------------------------------------------------------------------------

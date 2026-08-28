@@ -1,16 +1,41 @@
-"""Tests for YouTube Data API key rotation, OAuth manager, and API calls."""
+"""Comprehensive tests for YouTube Data API key rotation, forensic error classification, diagnostics, and OAuth."""
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
 
 from app.youtube import (
+    KeyState,
     OAuthManager,
     YouTubeAPIUnavailableError,
+    YouTubeClient,
     YouTubeKeyPool,
     YouTubeOAuthError,
 )
+
+
+@pytest.mark.asyncio
+async def test_youtube_key_pool_initial_ready_state():
+    """Verify that all configured keys begin in READY state."""
+    keys = ["yt-key-1", "yt-key-2", "yt-key-3"]
+    pool = YouTubeKeyPool(keys)
+
+    assert pool.total_keys == 3
+    assert pool.get_healthy_count() == 3
+    summary = pool.get_status_summary()
+    assert all(k["state"] == "READY" for k in summary)
+    assert all(k["is_available"] is True for k in summary)
+
+
+@pytest.mark.asyncio
+async def test_youtube_key_pool_whitespace_and_empty_filtering():
+    """Verify that whitespace or empty strings are not added to the key pool."""
+    keys = ["yt-key-1", "", "   ", "yt-key-2"]
+    pool = YouTubeKeyPool(keys)
+    assert pool.total_keys == 2
+    assert pool.get_healthy_count() == 2
 
 
 @pytest.mark.asyncio
@@ -19,14 +44,17 @@ async def test_youtube_key_pool_rotation():
     keys = ["yt-key-1", "yt-key-2", "yt-key-3"]
     pool = YouTubeKeyPool(keys)
 
-    assert pool.total_keys == 3
-    assert pool.get_healthy_count() == 3
-
     l1, k1 = await pool.get_next_key()
     assert l1 == "youtube-key-1"
 
     # Report quota error on key 1
-    await pool.report_failure("youtube-key-1", 403, "quotaExceeded")
+    await pool.report_failure(
+        label="youtube-key-1",
+        status_code=403,
+        reason="quotaExceeded",
+        message="The request cannot be completed because you have exceeded your quota.",
+        operation="search.list",
+    )
     assert pool.get_healthy_count() == 2
 
     # Should rotate to key 2
@@ -35,14 +63,244 @@ async def test_youtube_key_pool_rotation():
 
 
 @pytest.mark.asyncio
-async def test_youtube_key_pool_all_exhausted():
-    """Test exception when all YouTube keys are exhausted."""
+async def test_invalid_key_marks_invalid_without_poisoning_others():
+    """Verify that a 400 keyInvalid marks only that key as INVALID and does not affect others."""
+    keys = ["bad-key", "good-key-1", "good-key-2"]
+    pool = YouTubeKeyPool(keys)
+
+    await pool.report_failure(
+        label="youtube-key-1",
+        status_code=400,
+        reason="keyInvalid",
+        message="API key not valid. Please pass a valid API key.",
+        operation="channels.list",
+    )
+
+    summary = pool.get_status_summary()
+    assert summary[0]["state"] == KeyState.INVALID.value
+    assert summary[0]["is_available"] is False
+    assert pool.get_healthy_count() == 2
+
+    # Next key should be key 2
+    label, _ = await pool.get_next_key()
+    assert label == "youtube-key-2"
+
+
+@pytest.mark.asyncio
+async def test_api_not_enabled_marks_state():
+    """Verify that 403 accessNotConfigured marks API_NOT_ENABLED."""
+    keys = ["key-1", "key-2"]
+    pool = YouTubeKeyPool(keys)
+
+    await pool.report_failure(
+        label="youtube-key-1",
+        status_code=403,
+        reason="accessNotConfigured",
+        message="YouTube Data API v3 has not been used in project 12345 before or it is disabled.",
+        operation="search.list",
+    )
+
+    summary = pool.get_status_summary()
+    assert summary[0]["state"] == KeyState.API_NOT_ENABLED.value
+    assert summary[0]["is_available"] is False
+    assert pool.get_healthy_count() == 1
+
+
+@pytest.mark.asyncio
+async def test_key_restrictions_forbidden_marks_state():
+    """Verify that 403 ipRefererBlocked marks FORBIDDEN."""
+    keys = ["key-1"]
+    pool = YouTubeKeyPool(keys)
+
+    await pool.report_failure(
+        label="youtube-key-1",
+        status_code=403,
+        reason="ipRefererBlocked",
+        message="Requests from referer https://... are blocked.",
+        operation="search.list",
+    )
+
+    summary = pool.get_status_summary()
+    assert summary[0]["state"] == KeyState.FORBIDDEN.value
+    assert summary[0]["is_available"] is False
+
+
+@pytest.mark.asyncio
+async def test_network_error_short_backoff():
+    """Verify that network errors trigger transient 5s backoff rather than quota failure counts."""
+    keys = ["key-1"]
+    pool = YouTubeKeyPool(keys)
+
+    await pool.report_failure(
+        label="youtube-key-1",
+        status_code=0,
+        reason="NetworkError",
+        message="Connection timeout",
+        operation="search.list",
+    )
+
+    summary = pool.get_status_summary()
+    assert summary[0]["state"] == KeyState.NETWORK_ERROR.value
+    assert summary[0]["failure_count"] == 0  # Does not increment quota failure counter
+
+
+@pytest.mark.asyncio
+async def test_cooldown_expiration_and_recovery():
+    """Verify that an expired cooldown returns key state to READY."""
+    keys = ["key-1"]
+    pool = YouTubeKeyPool(keys)
+
+    await pool.report_failure(
+        label="youtube-key-1",
+        status_code=429,
+        reason="rateLimitExceeded",
+        message="Rate limit exceeded",
+        operation="search.list",
+    )
+
+    assert pool.get_healthy_count() == 0
+    # Manually set cooldown_until to past
+    pool._keys[0].cooldown_until = datetime.now(UTC) - timedelta(seconds=1)
+
+    assert pool.get_healthy_count() == 1
+    label, _ = await pool.get_next_key()
+    assert label == "youtube-key-1"
+
+
+@pytest.mark.asyncio
+async def test_youtube_key_pool_all_exhausted_detailed_diagnostics():
+    """Test detailed exception message when all YouTube keys are exhausted."""
     keys = ["yt-key-1"]
     pool = YouTubeKeyPool(keys)
 
-    await pool.report_failure("youtube-key-1", 429, "rateLimitExceeded")
-    with pytest.raises(YouTubeAPIUnavailableError):
+    await pool.report_failure(
+        label="youtube-key-1",
+        status_code=403,
+        reason="quotaExceeded",
+        message="Quota exceeded",
+        operation="search.list",
+    )
+    with pytest.raises(YouTubeAPIUnavailableError) as exc_info:
         await pool.get_next_key()
+
+    assert "youtube-key-1" in str(exc_info.value)
+    assert "COOLDOWN" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_diagnose_all_keys():
+    """Test the diagnose_all_keys diagnostic function."""
+
+    class MockTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            key = request.url.params.get("key")
+            if key == "valid_key":
+                return httpx.Response(200, json={"items": [{"id": "UC123"}]}, request=request)
+            elif key == "disabled_api_key":
+                return httpx.Response(
+                    403,
+                    json={
+                        "error": {
+                            "code": 403,
+                            "message": "API not enabled",
+                            "errors": [{"reason": "accessNotConfigured"}],
+                        }
+                    },
+                    request=request,
+                )
+            else:
+                return httpx.Response(
+                    400,
+                    json={
+                        "error": {
+                            "code": 400,
+                            "message": "Key invalid",
+                            "errors": [{"reason": "keyInvalid"}],
+                        }
+                    },
+                    request=request,
+                )
+
+    client = httpx.AsyncClient(transport=MockTransport())
+    pool = YouTubeKeyPool(["valid_key", "disabled_api_key", "bad_key"])
+
+    results = await pool.diagnose_all_keys(client=client)
+    assert len(results) == 3
+    assert results[0]["status"] == "READY"
+    assert results[0]["http_code"] == 200
+
+    assert results[1]["status"] == KeyState.API_NOT_ENABLED.value
+    assert results[1]["http_code"] == 403
+
+    assert results[2]["status"] == KeyState.INVALID.value
+    assert results[2]["http_code"] == 400
+
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_youtube_client_live_detection_flow():
+    """Test get_active_live_video and get_live_chat_id resolution."""
+
+    class MockTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            url_str = str(request.url)
+            if "/youtube/v3/search" in url_str:
+                return httpx.Response(
+                    200,
+                    json={
+                        "items": [
+                            {
+                                "id": {"videoId": "test_video_123"},
+                                "snippet": {"title": "Live Gaming Stream"},
+                            }
+                        ]
+                    },
+                    request=request,
+                )
+            elif "/youtube/v3/videos" in url_str:
+                return httpx.Response(
+                    200,
+                    json={
+                        "items": [
+                            {
+                                "id": "test_video_123",
+                                "liveStreamingDetails": {
+                                    "activeLiveChatId": "chat_id_abc_789",
+                                },
+                            }
+                        ]
+                    },
+                    request=request,
+                )
+            elif "/youtube/v3/channels" in url_str:
+                return httpx.Response(
+                    200,
+                    json={"items": [{"id": "UC123", "snippet": {"title": "Test Channel"}}]},
+                    request=request,
+                )
+            return httpx.Response(404, request=request)
+
+    http_client = httpx.AsyncClient(transport=MockTransport())
+    pool = YouTubeKeyPool(["valid_key_1"])
+    yt = YouTubeClient(key_pool=pool, http_client=http_client)
+
+    # 1. Channel lookup
+    ch = await yt.get_channel_details("UC123")
+    assert ch is not None
+    assert ch["id"] == "UC123"
+
+    # 2. Live video detection
+    live_video = await yt.get_active_live_video("UC123")
+    assert live_video is not None
+    assert live_video["video_id"] == "test_video_123"
+    assert live_video["title"] == "Live Gaming Stream"
+
+    # 3. Live chat ID resolution
+    chat_id = await yt.get_live_chat_id("test_video_123")
+    assert chat_id == "chat_id_abc_789"
+
+    await yt.close()
 
 
 @pytest.mark.asyncio

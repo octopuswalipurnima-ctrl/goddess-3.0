@@ -110,7 +110,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # 3. Addons & Key Pools Initialization
     logger.info("STARTUP: addons initialization beginning")
-    yt_pool = YouTubeKeyPool(settings.get_youtube_keys())
+    yt_keys = settings.get_youtube_keys()
+    yt_pool = YouTubeKeyPool(yt_keys)
     oauth_mgr = OAuthManager(
         client_id=settings.GOOGLE_CLIENT_ID,
         client_secret=settings.GOOGLE_CLIENT_SECRET,
@@ -131,6 +132,34 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         outbound_queue=outbound_queue,
     )
     websub_manager = WebSubManager()
+
+    # Run YouTube API Key diagnostic check if keys are configured
+    if yt_pool.total_keys > 0:
+        logger.info("STARTUP: Running independent YouTube Data API key diagnostics...")
+        diag_results = await yt_pool.diagnose_all_keys()
+        for res in diag_results:
+            logger.info(
+                f"  [{res['label']}]: HTTP {res['http_code']} | State={res['status']} | Reason={res['reason']} | Message={res['message'][:80]}"
+            )
+
+    # Print Subsystem Readiness Banner
+    healthy_yt = yt_pool.get_healthy_count()
+    banner = (
+        "\n"
+        + "=" * 60
+        + "\n"
+        + "GODDESS AI 3.0 — SUBSYSTEM STATUS\n"
+        + "=" * 60
+        + "\n"
+        + f"DATABASE       READY ({db_diag})\n"
+        + f"GEMINI         {'READY' if gemini_pool.total_keys > 0 else 'NOT CONFIGURED'} ({gemini_pool.total_keys} keys)\n"
+        + f"YOUTUBE READ   {'READY' if healthy_yt > 0 else 'UNHEALTHY / NOT CONFIGURED'} ({healthy_yt}/{yt_pool.total_keys} keys ready)\n"
+        + f"YOUTUBE OAUTH  {'READY' if oauth_mgr.is_configured else 'NOT CONFIGURED'}\n"
+        + f"WEBSUB         {'READY' if settings.WEBSUB_CALLBACK_URL else 'NOT CONFIGURED'}\n"
+        + f"CHANNELS       {len(settings.load_channels())} CONFIGURED\n"
+        + "=" * 60
+    )
+    logger.info(banner)
     logger.info("STARTUP: addons initialization completed")
 
     # 4. Schedule Non-blocking Channel Reconciliation & Stream Polling
@@ -188,13 +217,16 @@ async def health_live() -> dict[str, str]:
 async def health_check() -> dict[str, Any]:
     """Detailed process health and database connectivity report."""
     is_configured = bool(settings.get_database_url_safe())
-    db_ok, _ = await verify_database_connection(timeout_seconds=2.0)
+    db_ok, db_diag = await verify_database_connection(timeout_seconds=2.0)
+    yt_summary = youtube_client.key_pool.get_status_summary() if youtube_client else []
     return {
         "status": "ok" if db_ok else "degraded",
         "database": {
             "configured": is_configured,
             "connected": db_ok,
+            "detail": db_diag,
         },
+        "youtube_key_pool": yt_summary,
     }
 
 
@@ -207,6 +239,7 @@ async def readiness_check() -> dict[str, Any]:
     yt_healthy = youtube_client.key_pool.get_healthy_count() if youtube_client else 0
     gemini_healthy = gemini_client.key_pool.get_healthy_count() if gemini_client else 0
     oauth_ready = youtube_client.oauth.is_configured if youtube_client else False
+    yt_summary = youtube_client.key_pool.get_status_summary() if youtube_client else []
 
     is_ready = db_ok and (yt_healthy > 0 or gemini_healthy > 0 or not settings.get_youtube_keys())
 
@@ -218,6 +251,7 @@ async def readiness_check() -> dict[str, Any]:
             "detail": db_diag,
         },
         "youtube_api_keys_healthy": yt_healthy,
+        "youtube_key_pool": yt_summary,
         "gemini_api_keys_healthy": gemini_healthy,
         "oauth_configured": oauth_ready,
         "websub_callback": bool(settings.WEBSUB_CALLBACK_URL),

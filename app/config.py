@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -210,23 +211,51 @@ class Settings(BaseSettings):
         )
 
     def get_gemini_keys(self) -> list[str]:
-        """Return non-empty Gemini API keys."""
+        """Return non-empty Gemini API keys checking both instance attributes and os.environ."""
+        import os
+
         keys = [
-            self.GEMINI_API_KEY_1,
-            self.GEMINI_API_KEY_2,
-            self.GEMINI_API_KEY_3,
-            self.GEMINI_API_KEY_4,
+            os.environ.get("GEMINI_API_KEY_1") or self.GEMINI_API_KEY_1,
+            os.environ.get("GEMINI_API_KEY_2") or self.GEMINI_API_KEY_2,
+            os.environ.get("GEMINI_API_KEY_3") or self.GEMINI_API_KEY_3,
+            os.environ.get("GEMINI_API_KEY_4") or self.GEMINI_API_KEY_4,
         ]
         return [k.strip() for k in keys if k and k.strip()]
 
     def get_youtube_keys(self) -> list[str]:
-        """Return non-empty YouTube Data API keys."""
+        """Return non-empty YouTube Data API keys checking both instance attributes and os.environ."""
+        import os
+
         keys = [
-            self.YOUTUBE_API_KEY_1,
-            self.YOUTUBE_API_KEY_2,
-            self.YOUTUBE_API_KEY_3,
+            os.environ.get("YOUTUBE_API_KEY_1") or self.YOUTUBE_API_KEY_1,
+            os.environ.get("YOUTUBE_API_KEY_2") or self.YOUTUBE_API_KEY_2,
+            os.environ.get("YOUTUBE_API_KEY_3") or self.YOUTUBE_API_KEY_3,
         ]
         return [k.strip() for k in keys if k and k.strip()]
+
+    def get_youtube_key_slot_diagnostics(self) -> list[dict[str, Any]]:
+        """Return safe slot-by-slot presence report without revealing credentials."""
+        import os
+
+        slots = [
+            ("Key #1 (YOUTUBE_API_KEY_1)", os.environ.get("YOUTUBE_API_KEY_1") or self.YOUTUBE_API_KEY_1),
+            ("Key #2 (YOUTUBE_API_KEY_2)", os.environ.get("YOUTUBE_API_KEY_2") or self.YOUTUBE_API_KEY_2),
+            ("Key #3 (YOUTUBE_API_KEY_3)", os.environ.get("YOUTUBE_API_KEY_3") or self.YOUTUBE_API_KEY_3),
+        ]
+        report = []
+        for name, val in slots:
+            clean = val.strip() if val else None
+            present = bool(clean)
+            length = len(clean) if clean else 0
+            report.append(
+                {
+                    "slot": name,
+                    "present": present,
+                    "status": "PRESENT" if present else "MISSING",
+                    "length": length,
+                }
+            )
+        return report
 
     def load_channels(self) -> list[ChannelConfig]:
         """Load, validate, deduplicate, and filter channels from channels.json."""
@@ -291,6 +320,8 @@ class Settings(BaseSettings):
             f"OAuthConfigured={has_oauth} "
             f"WebSubCallback={self.WEBSUB_CALLBACK_URL or '[NOT_SET]'}"
         )
+        for slot_info in self.get_youtube_key_slot_diagnostics():
+            logger.info(f"  {slot_info['slot']}: {slot_info['status']} (length={slot_info['length']})")
 
 
 settings = Settings()

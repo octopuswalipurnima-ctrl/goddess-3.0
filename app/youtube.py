@@ -1,8 +1,10 @@
-"""YouTube Data API v3 Client with 3-key pool rotation and persistent OAuth2 manager."""
+"""YouTube Data API v3 Client with 3-key pool rotation, forensic diagnostics, and OAuth2 manager."""
 
 import asyncio
+import contextlib
 import random
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from typing import Any
 
 import httpx
@@ -13,8 +15,21 @@ from app.utils import get_logger
 logger = get_logger("goddess.youtube")
 
 
+class KeyState(StrEnum):
+    """Lifecycle and health states for YouTube Data API keys."""
+
+    READY = "READY"
+    COOLDOWN = "COOLDOWN"
+    QUOTA_EXHAUSTED = "QUOTA_EXHAUSTED"
+    INVALID = "INVALID"
+    API_NOT_ENABLED = "API_NOT_ENABLED"
+    FORBIDDEN = "FORBIDDEN"
+    NETWORK_ERROR = "NETWORK_ERROR"
+    UNKNOWN_ERROR = "UNKNOWN_ERROR"
+
+
 class YouTubeAPIUnavailableError(Exception):
-    """Raised when all YouTube API keys in the pool are exhausted or in cooldown."""
+    """Raised when all YouTube API keys in the pool are exhausted, in cooldown, or invalid."""
 
 
 class YouTubeOAuthError(Exception):
@@ -22,61 +37,164 @@ class YouTubeOAuthError(Exception):
 
 
 class YouTubeKeyItem:
-    """Tracks state and cooldown for a single YouTube Data API key."""
+    """Tracks individual state, metrics, and cooldown for a single YouTube Data API key."""
 
     def __init__(self, label: str, key: str) -> None:
         self.label = label
-        self.key = key
-        self.is_healthy: bool = True
+        self.key = key.strip()
+        self.state: KeyState = KeyState.READY
         self.cooldown_until: datetime | None = None
         self.failure_count: int = 0
         self.success_count: int = 0
+        self.last_status_code: int | None = None
+        self.last_reason: str | None = None
+        self.last_error_message: str | None = None
+        self.last_operation: str | None = None
         self.last_used: datetime | None = None
-        self.last_error: str | None = None
+        self.created_at: datetime = datetime.now(UTC)
 
     def is_available(self) -> bool:
         """Check if key is ready for requests."""
-        if not self.is_healthy:
+        # Permanent configuration failures for this specific key
+        if self.state in (KeyState.INVALID, KeyState.API_NOT_ENABLED, KeyState.FORBIDDEN):
             return False
-        if self.cooldown_until is not None:
-            if datetime.now(UTC) < self.cooldown_until:
-                return False
-            # Cooldown expired, restore health
-            self.cooldown_until = None
-        return True
 
-    def mark_success(self) -> None:
+        # If key is in cooldown, check if cooldown duration has expired
+        if self.cooldown_until is not None:
+            now = datetime.now(UTC)
+            if now < self.cooldown_until:
+                return False
+            # Cooldown expired: restore key to READY state
+            self.state = KeyState.READY
+            self.cooldown_until = None
+            logger.info(f"YouTube key [{self.label}] cooldown expired; state returned to READY.")
+
+        return self.state == KeyState.READY
+
+    def mark_success(self, operation: str = "") -> None:
         """Update metrics on successful call."""
+        self.state = KeyState.READY
         self.success_count += 1
         self.failure_count = 0
         self.cooldown_until = None
         self.last_used = datetime.now(UTC)
-        self.last_error = None
+        self.last_operation = operation
+        self.last_error_message = None
+        self.last_reason = None
+        self.last_status_code = 200
 
-    def mark_failure(self, error_msg: str, status_code: int = 0) -> None:
-        """Apply exponential backoff cooldown with jitter upon error."""
-        self.failure_count += 1
-        self.last_error = error_msg
+    def mark_failure(
+        self,
+        status_code: int,
+        reason: str,
+        message: str,
+        domain: str = "",
+        operation: str = "",
+    ) -> None:
+        """Classify error and update key state accordingly."""
+        self.last_status_code = status_code
+        self.last_reason = reason
+        self.last_error_message = message
+        self.last_operation = operation
         self.last_used = datetime.now(UTC)
 
-        # Base cooldown: 30 seconds * 2^(failure_count - 1), max 15 minutes, with jitter
-        base_seconds = min(30 * (2 ** (self.failure_count - 1)), 900)
-        jitter = random.uniform(0.8, 1.2)
-        cooldown_duration = timedelta(seconds=base_seconds * jitter)
-        self.cooldown_until = datetime.now(UTC) + cooldown_duration
+        reason_lower = (reason or "").lower()
+        msg_lower = (message or "").lower()
 
+        # 1. Invalid Key (HTTP 400 keyInvalid / badRequest)
+        if status_code == 400 and ("keyinvalid" in reason_lower or "api key not valid" in msg_lower):
+            self.state = KeyState.INVALID
+            logger.error(
+                f"YouTube API key [{self.label}] is INVALID (HTTP 400 {reason}).\n"
+                f"  Operation: {operation}\n"
+                f"  Message: {message}\n"
+                f"  Action: Check YOUTUBE_API_KEY environment variable and verify the key string."
+            )
+            return
+
+        # 2. API Not Enabled (HTTP 403 accessNotConfigured / SERVICE_DISABLED)
+        if status_code == 403 and (
+            "accessnotconfigured" in reason_lower
+            or "service_disabled" in reason_lower
+            or "has not been used in project" in msg_lower
+            or "is disabled" in msg_lower
+        ):
+            self.state = KeyState.API_NOT_ENABLED
+            logger.error(
+                f"YouTube API key [{self.label}] failed: 'YouTube Data API v3' is NOT ENABLED in Google Cloud.\n"
+                f"  Operation: {operation}\n"
+                f"  Status: HTTP 403 ({reason})\n"
+                f"  Message: {message}\n"
+                f"  Action: Open Google Cloud Console -> APIs & Services -> Library -> Search 'YouTube Data API v3' -> Click ENABLE."
+            )
+            return
+
+        # 3. Key Restrictions Blocked (HTTP 403 ipRefererBlocked / forbidden)
+        if status_code == 403 and (
+            "iprefererblocked" in reason_lower
+            or "http_referrer_blocked" in reason_lower
+            or "ip_address_blocked" in reason_lower
+            or "blocked" in msg_lower
+        ):
+            self.state = KeyState.FORBIDDEN
+            logger.error(
+                f"YouTube API key [{self.label}] restriction blocked (HTTP 403 {reason}).\n"
+                f"  Operation: {operation}\n"
+                f"  Message: {message}\n"
+                f"  Action: In Google Cloud Console -> Credentials -> Edit API Key -> Application restrictions: set to 'None' for server-side bot use."
+            )
+            return
+
+        # 4. Genuine Quota Exceeded / Rate Limit (HTTP 403 quotaExceeded / 429)
+        if status_code in (403, 429) and (
+            "quotaexceeded" in reason_lower
+            or "dailylimitexceeded" in reason_lower
+            or "ratelimitexceeded" in reason_lower
+            or "userratelimitexceeded" in reason_lower
+            or "resource_exhausted" in reason_lower
+            or status_code == 429
+        ):
+            self.failure_count += 1
+            self.state = KeyState.COOLDOWN
+            # Base cooldown: 30s * 2^(failures - 1), max 900s, with jitter
+            base_sec = min(30 * (2 ** (self.failure_count - 1)), 900)
+            jitter = random.uniform(0.9, 1.1)
+            duration_sec = base_sec * jitter
+            self.cooldown_until = datetime.now(UTC) + timedelta(seconds=duration_sec)
+            logger.warning(
+                f"YouTube API key [{self.label}] placed in COOLDOWN ({duration_sec:.1f}s).\n"
+                f"  Operation: {operation}\n"
+                f"  Status: HTTP {status_code} ({reason})\n"
+                f"  Message: {message}\n"
+                f"  Failures in sequence: {self.failure_count}"
+            )
+            return
+
+        # 5. Network / Timeout Error (status_code == 0)
+        if status_code == 0:
+            self.state = KeyState.NETWORK_ERROR
+            # Short 5-second backoff; do not increment quota failure count
+            self.cooldown_until = datetime.now(UTC) + timedelta(seconds=5.0)
+            logger.warning(
+                f"YouTube API key [{self.label}] transient network error on {operation}: {message} (backoff 5.0s)"
+            )
+            return
+
+        # 6. Other / Unknown HTTP Error (500, 502, 503, etc.)
+        self.state = KeyState.UNKNOWN_ERROR
+        self.cooldown_until = datetime.now(UTC) + timedelta(seconds=15.0)
         logger.warning(
-            f"YouTube key {self.label} marked for cooldown "
-            f"({cooldown_duration.total_seconds():.1f}s) due to error (code={status_code}): {error_msg}"
+            f"YouTube API key [{self.label}] HTTP {status_code} error on {operation}: {message} (backoff 15.0s)"
         )
 
 
 class YouTubeKeyPool:
-    """Thread-safe round-robin pool for 3 YouTube Data API keys."""
+    """Thread-safe round-robin pool for YouTube Data API keys with failure isolation."""
 
     def __init__(self, keys: list[str]) -> None:
+        clean_keys = [k.strip() for k in keys if k and k.strip()]
         self._keys: list[YouTubeKeyItem] = [
-            YouTubeKeyItem(f"youtube-key-{i + 1}", key) for i, key in enumerate(keys)
+            YouTubeKeyItem(f"youtube-key-{i + 1}", key) for i, key in enumerate(clean_keys)
         ]
         self._index: int = 0
         self._lock = asyncio.Lock()
@@ -88,11 +206,35 @@ class YouTubeKeyPool:
     def get_healthy_count(self) -> int:
         return sum(1 for k in self._keys if k.is_available())
 
+    def get_status_summary(self) -> list[dict[str, Any]]:
+        """Return safe, credential-free status dictionary for each key."""
+        now = datetime.now(UTC)
+        summary = []
+        for k in self._keys:
+            cooldown_left = 0.0
+            if k.cooldown_until and k.cooldown_until > now:
+                cooldown_left = round((k.cooldown_until - now).total_seconds(), 1)
+
+            summary.append(
+                {
+                    "label": k.label,
+                    "state": k.state.value,
+                    "is_available": k.is_available(),
+                    "success_count": k.success_count,
+                    "failure_count": k.failure_count,
+                    "cooldown_remaining_sec": cooldown_left,
+                    "last_status_code": k.last_status_code,
+                    "last_reason": k.last_reason,
+                    "last_operation": k.last_operation,
+                }
+            )
+        return summary
+
     async def get_next_key(self) -> tuple[str, str]:
         """Select next available healthy key via round-robin."""
         async with self._lock:
             if not self._keys:
-                raise YouTubeAPIUnavailableError("No YouTube API keys configured.")
+                raise YouTubeAPIUnavailableError("No YouTube API keys configured in environment.")
 
             # Search starting from current index
             for _ in range(len(self._keys)):
@@ -101,22 +243,137 @@ class YouTubeKeyPool:
                 if key_item.is_available():
                     return key_item.label, key_item.key
 
-            # Check if any key is closest to waking up
-            raise YouTubeAPIUnavailableError("All YouTube API keys are currently in cooldown or exhausted.")
+            # All keys are currently unavailable; compile forensic diagnostic report
+            diagnostics = []
+            for k in self._keys:
+                detail = f"[{k.label}]: State={k.state.value}"
+                if k.last_status_code:
+                    detail += f" (HTTP {k.last_status_code} {k.last_reason or ''})"
+                if k.cooldown_until and k.cooldown_until > datetime.now(UTC):
+                    left = (k.cooldown_until - datetime.now(UTC)).total_seconds()
+                    detail += f" [Cooldown: {left:.1f}s remaining]"
+                diagnostics.append(detail)
 
-    async def report_success(self, label: str) -> None:
+            diag_msg = "; ".join(diagnostics)
+            raise YouTubeAPIUnavailableError(
+                f"All {len(self._keys)} YouTube API keys are unavailable. Diagnostics: {diag_msg}"
+            )
+
+    async def report_success(self, label: str, operation: str = "") -> None:
         async with self._lock:
             for k in self._keys:
                 if k.label == label:
-                    k.mark_success()
+                    k.mark_success(operation)
                     break
 
-    async def report_failure(self, label: str, status_code: int, error_msg: str) -> None:
+    async def report_failure(
+        self,
+        label: str,
+        status_code: int,
+        reason: str,
+        message: str,
+        domain: str = "",
+        operation: str = "",
+    ) -> None:
         async with self._lock:
             for k in self._keys:
                 if k.label == label:
-                    k.mark_failure(error_msg, status_code)
+                    k.mark_failure(
+                        status_code=status_code,
+                        reason=reason,
+                        message=message,
+                        domain=domain,
+                        operation=operation,
+                    )
                     break
+
+    async def diagnose_all_keys(
+        self,
+        client: httpx.AsyncClient | None = None,
+        test_channel_id: str = "UCGH_osSgL2FCsBYe6XMxlSQ",
+    ) -> list[dict[str, Any]]:
+        """
+        Direct diagnostic test: Independently tests every configured key against channels.list.
+        Safe and non-destructive (1 quota unit per key).
+        """
+        should_close = False
+        if client is None:
+            client = httpx.AsyncClient(timeout=10.0)
+            should_close = True
+
+        results = []
+        url = "https://www.googleapis.com/youtube/v3/channels"
+
+        try:
+            for k in self._keys:
+                label = k.label
+                api_key = k.key
+                params = {"part": "id", "id": test_channel_id, "key": api_key}
+
+                try:
+                    resp = await client.get(url, params=params)
+                    status_code = resp.status_code
+
+                    if status_code == 200:
+                        k.mark_success("channels.list (diagnostic)")
+                        results.append(
+                            {
+                                "label": label,
+                                "status": "READY",
+                                "http_code": 200,
+                                "reason": "OK",
+                                "message": "API key functional and valid.",
+                            }
+                        )
+                    else:
+                        err_json = {}
+                        with contextlib.suppress(Exception):
+                            err_json = resp.json().get("error", {})
+
+                        errors = err_json.get("errors", [])
+                        reason = errors[0].get("reason", "") if errors else err_json.get("status", "")
+                        msg = err_json.get("message", resp.text[:200])
+                        domain = errors[0].get("domain", "") if errors else ""
+
+                        k.mark_failure(
+                            status_code=status_code,
+                            reason=reason,
+                            message=msg,
+                            domain=domain,
+                            operation="channels.list (diagnostic)",
+                        )
+
+                        results.append(
+                            {
+                                "label": label,
+                                "status": k.state.value,
+                                "http_code": status_code,
+                                "reason": reason,
+                                "message": msg,
+                            }
+                        )
+
+                except httpx.RequestError as e:
+                    k.mark_failure(
+                        status_code=0,
+                        reason="NetworkError",
+                        message=str(e),
+                        operation="channels.list (diagnostic)",
+                    )
+                    results.append(
+                        {
+                            "label": label,
+                            "status": "NETWORK_ERROR",
+                            "http_code": 0,
+                            "reason": "NetworkError",
+                            "message": str(e),
+                        }
+                    )
+        finally:
+            if should_close:
+                await client.aclose()
+
+        return results
 
 
 class OAuthManager:
@@ -129,10 +386,10 @@ class OAuthManager:
         access_token: str | None,
         refresh_token: str | None,
     ) -> None:
-        self.client_id = client_id
-        self.client_secret = client_secret
-        self._access_token = access_token
-        self._refresh_token = refresh_token
+        self.client_id = client_id.strip() if client_id else None
+        self.client_secret = client_secret.strip() if client_secret else None
+        self._access_token = access_token.strip() if access_token else None
+        self._refresh_token = refresh_token.strip() if refresh_token else None
         self._expires_at: datetime | None = None
         self._lock = asyncio.Lock()
         self.is_reauth_required: bool = False
@@ -161,7 +418,6 @@ class OAuthManager:
             return self._access_token
 
         async with self._lock:
-            # Double check inside lock
             now = datetime.now(UTC)
             if (
                 self._access_token is not None
@@ -256,51 +512,109 @@ class YouTubeClient:
             await self._client.aclose()
 
     # -----------------------------------------------------------------------
-    # Read Operations (Using YouTubeKeyPool)
+    # Read Operations (Using YouTubeKeyPool with Forensic Error Diagnostics)
     # -----------------------------------------------------------------------
 
     async def _execute_read_request(
         self,
+        operation_name: str,
         url: str,
         params: dict[str, Any],
-        max_retries: int = 3,
+        max_retries: int | None = None,
     ) -> dict[str, Any]:
-        """Execute a GET request rotating through the YouTubeKeyPool on 403/429 errors."""
+        """
+        Execute a GET request rotating through the YouTubeKeyPool.
+        Captures full diagnostic information for each key attempt without masking real API errors.
+        """
         client = await self._get_client()
+        total_keys = max(self.key_pool.total_keys, 1)
+        retries_limit = max_retries if max_retries is not None else total_keys
         attempts = 0
 
-        while attempts < max_retries:
+        while attempts < retries_limit:
             attempts += 1
-            label, api_key = await self.key_pool.get_next_key()
+            try:
+                label, api_key = await self.key_pool.get_next_key()
+            except YouTubeAPIUnavailableError:
+                # No more keys available in this cycle
+                break
+
             req_params = {**params, "key": api_key}
+            logger.debug(
+                f"Executing YouTube read '{operation_name}' using key slot [{label}] (attempt {attempts}/{retries_limit})"
+            )
 
             try:
                 resp = await client.get(url, params=req_params)
-                if resp.status_code == 200:
-                    await self.key_pool.report_success(label)
-                    return resp.json()
-                elif resp.status_code in (403, 429):
-                    error_data = resp.json().get("error", {})
-                    reason = ""
-                    if error_data.get("errors"):
-                        reason = error_data["errors"][0].get("reason", "")
-                    msg = f"Quota/Rate error: {reason or resp.text[:100]}"
-                    await self.key_pool.report_failure(label, resp.status_code, msg)
-                    logger.warning(
-                        f"YouTube read call failed on {label} (attempt {attempts}/{max_retries}): {msg}"
-                    )
-                    continue
-                else:
-                    msg = f"HTTP {resp.status_code}: {resp.text[:100]}"
-                    await self.key_pool.report_failure(label, resp.status_code, msg)
-                    raise httpx.HTTPStatusError(msg, request=resp.request, response=resp)
+                status_code = resp.status_code
 
-            except httpx.RequestError as e:
-                await self.key_pool.report_failure(label, 0, f"Network error: {e}")
-                logger.warning(f"Network error on {label}: {e}")
+                if status_code == 200:
+                    await self.key_pool.report_success(label, operation=operation_name)
+                    return resp.json()
+
+                # Parse JSON error payload
+                err_json: dict[str, Any] = {}
+                with contextlib.suppress(Exception):
+                    err_json = resp.json().get("error", {})
+
+                errors_list = err_json.get("errors", [])
+                reason = errors_list[0].get("reason", "") if errors_list else err_json.get("status", "")
+                message = err_json.get("message", resp.text[:200])
+                domain = errors_list[0].get("domain", "") if errors_list else ""
+
+                logger.warning(
+                    f"YouTube API read failed on [{label}]:\n"
+                    f"  Operation: {operation_name}\n"
+                    f"  Status: HTTP {status_code}\n"
+                    f"  Reason: {reason}\n"
+                    f"  Message: {message}"
+                )
+
+                await self.key_pool.report_failure(
+                    label=label,
+                    status_code=status_code,
+                    reason=reason,
+                    message=message,
+                    domain=domain,
+                    operation=operation_name,
+                )
+
+                # Rotate to next key
                 continue
 
-        raise YouTubeAPIUnavailableError("Exhausted retries across YouTube API key pool.")
+            except httpx.RequestError as e:
+                logger.warning(f"Network error on [{label}] during '{operation_name}': {e}")
+                await self.key_pool.report_failure(
+                    label=label,
+                    status_code=0,
+                    reason="NetworkError",
+                    message=str(e),
+                    operation=operation_name,
+                )
+                continue
+
+        # If loop finishes without returning, raise forensic unavailable error
+        raise YouTubeAPIUnavailableError(
+            f"Exhausted all available YouTube API keys for operation '{operation_name}' after {attempts} attempt(s)."
+        )
+
+    async def get_channel_details(self, channel_id: str) -> dict[str, Any] | None:
+        """Fetch channel metadata (snippet, statistics) using 1 quota unit."""
+        url = "https://www.googleapis.com/youtube/v3/channels"
+        params = {
+            "part": "snippet,contentDetails,statistics",
+            "id": channel_id,
+        }
+        try:
+            data = await self._execute_read_request("channels.list", url, params)
+            items = data.get("items", [])
+            if items:
+                return items[0]
+            logger.info(f"Channel {channel_id} not found in YouTube Data API.")
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching channel details for {channel_id}: {e}")
+            return None
 
     async def get_active_live_video(self, channel_id: str) -> dict[str, Any] | None:
         """Find the currently active live broadcast for a channel."""
@@ -313,11 +627,14 @@ class YouTubeClient:
             "maxResults": 1,
         }
         try:
-            data = await self._execute_read_request(url, params)
+            data = await self._execute_read_request("search.list(live)", url, params)
             items = data.get("items", [])
             if items:
                 video_id = items[0]["id"]["videoId"]
                 title = items[0]["snippet"]["title"]
+                logger.info(
+                    f"Active live broadcast detected for channel {channel_id}: video_id={video_id} title='{title}'"
+                )
                 return {"video_id": video_id, "title": title}
             return None
         except Exception as e:
@@ -328,15 +645,19 @@ class YouTubeClient:
         """Resolve activeLiveChatId for a live video ID."""
         url = "https://www.googleapis.com/youtube/v3/videos"
         params = {
-            "part": "liveStreamingDetails",
+            "part": "liveStreamingDetails,snippet",
             "id": video_id,
         }
         try:
-            data = await self._execute_read_request(url, params)
+            data = await self._execute_read_request("videos.list(liveStreamingDetails)", url, params)
             items = data.get("items", [])
             if items:
                 streaming_details = items[0].get("liveStreamingDetails", {})
-                return streaming_details.get("activeLiveChatId")
+                chat_id = streaming_details.get("activeLiveChatId")
+                if chat_id:
+                    logger.info(f"Resolved activeLiveChatId for video {video_id}: {chat_id}")
+                    return chat_id
+                logger.info(f"Video {video_id} has liveStreamingDetails but no activeLiveChatId.")
             return None
         except Exception as e:
             logger.error(f"Error fetching liveChatId for video {video_id}: {e}")
@@ -360,7 +681,7 @@ class YouTubeClient:
         if page_token:
             params["pageToken"] = page_token
 
-        data = await self._execute_read_request(url, params)
+        data = await self._execute_read_request("liveChatMessages.list", url, params)
         items = data.get("items", [])
         next_token = data.get("nextPageToken")
         polling_interval = data.get("pollingIntervalMillis", 5000)
