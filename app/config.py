@@ -81,16 +81,33 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = Field(default="production", description="Fallback environment variable")
     PORT: int = Field(default=8000, description="Port to listen on")
 
-    # 4 Gemini API Keys
+    # Gemini API Keys
+    GEMINI_API_KEY: str | None = Field(default=None)
     GEMINI_API_KEY_1: str | None = Field(default=None)
     GEMINI_API_KEY_2: str | None = Field(default=None)
     GEMINI_API_KEY_3: str | None = Field(default=None)
     GEMINI_API_KEY_4: str | None = Field(default=None)
+    GEMINI_API_KEY_5: str | None = Field(default=None)
+    GEMINI_API_KEY_6: str | None = Field(default=None)
+    GEMINI_API_KEY_7: str | None = Field(default=None)
+    GEMINI_API_KEY_8: str | None = Field(default=None)
+    GEMINI_API_KEY_9: str | None = Field(default=None)
+    GEMINI_API_KEY_10: str | None = Field(default=None)
+    GEMINI_API_KEYS: str | None = Field(default=None)
 
-    # 3 YouTube Data API Keys (Read-only)
+    # YouTube Data API Keys (Read-only pool, supports multiple keys for quota rotation)
+    YOUTUBE_API_KEY: str | None = Field(default=None)
     YOUTUBE_API_KEY_1: str | None = Field(default=None)
     YOUTUBE_API_KEY_2: str | None = Field(default=None)
     YOUTUBE_API_KEY_3: str | None = Field(default=None)
+    YOUTUBE_API_KEY_4: str | None = Field(default=None)
+    YOUTUBE_API_KEY_5: str | None = Field(default=None)
+    YOUTUBE_API_KEY_6: str | None = Field(default=None)
+    YOUTUBE_API_KEY_7: str | None = Field(default=None)
+    YOUTUBE_API_KEY_8: str | None = Field(default=None)
+    YOUTUBE_API_KEY_9: str | None = Field(default=None)
+    YOUTUBE_API_KEY_10: str | None = Field(default=None)
+    YOUTUBE_API_KEYS: str | None = Field(default=None)
 
     # Google OAuth 2.0 (For authenticated write operations)
     GOOGLE_CLIENT_ID: str | None = Field(default=None)
@@ -219,40 +236,113 @@ class Settings(BaseSettings):
         )
 
     def get_gemini_keys(self) -> list[str]:
-        """Return non-empty Gemini API keys checking both instance attributes and os.environ."""
+        """Return non-empty Gemini API keys checking instance attributes, os.environ, and comma-separated lists."""
         import os
 
-        keys = [
-            os.environ.get("GEMINI_API_KEY_1") or self.GEMINI_API_KEY_1,
-            os.environ.get("GEMINI_API_KEY_2") or self.GEMINI_API_KEY_2,
-            os.environ.get("GEMINI_API_KEY_3") or self.GEMINI_API_KEY_3,
-            os.environ.get("GEMINI_API_KEY_4") or self.GEMINI_API_KEY_4,
-        ]
-        return [k.strip() for k in keys if k and k.strip()]
+        keys: list[str] = []
+
+        # 1. Comma/newline separated GEMINI_API_KEYS
+        multi = os.environ.get("GEMINI_API_KEYS") or self.GEMINI_API_KEYS
+        if multi:
+            for part in multi.replace("\n", ",").split(","):
+                if part.strip():
+                    keys.append(part.strip())
+
+        # 2. Singular GEMINI_API_KEY
+        single = os.environ.get("GEMINI_API_KEY") or self.GEMINI_API_KEY
+        if single and single.strip():
+            keys.append(single.strip())
+
+        # 3. Explicit slots 1 to 10
+        for i in range(1, 11):
+            var_name = f"GEMINI_API_KEY_{i}"
+            val = os.environ.get(var_name) or getattr(self, var_name, None)
+            if val and val.strip():
+                keys.append(val.strip())
+
+        # 4. Any dynamic GEMINI_API_KEY_* in environment
+        for k, v in os.environ.items():
+            if (
+                (k.startswith("GEMINI_API_KEY_") or k.startswith("GEMINI_KEY_"))
+                and v
+                and v.strip()
+                and v.strip() not in keys
+            ):
+                keys.append(v.strip())
+
+        # Deduplicate preserving order
+        seen = set()
+        deduped = []
+        for k in keys:
+            if k not in seen:
+                seen.add(k)
+                deduped.append(k)
+        return deduped
 
     def get_youtube_keys(self) -> list[str]:
-        """Return non-empty YouTube Data API keys checking both instance attributes and os.environ."""
+        """Return non-empty YouTube Data API keys checking instance attributes, os.environ, and comma-separated lists."""
         import os
 
-        keys = [
-            os.environ.get("YOUTUBE_API_KEY_1") or self.YOUTUBE_API_KEY_1,
-            os.environ.get("YOUTUBE_API_KEY_2") or self.YOUTUBE_API_KEY_2,
-            os.environ.get("YOUTUBE_API_KEY_3") or self.YOUTUBE_API_KEY_3,
-        ]
-        return [k.strip() for k in keys if k and k.strip()]
+        keys: list[str] = []
+
+        # 1. Comma/newline separated YOUTUBE_API_KEYS
+        multi = os.environ.get("YOUTUBE_API_KEYS") or self.YOUTUBE_API_KEYS
+        if multi:
+            for part in multi.replace("\n", ",").split(","):
+                if part.strip():
+                    keys.append(part.strip())
+
+        # 2. Singular YOUTUBE_API_KEY
+        single = os.environ.get("YOUTUBE_API_KEY") or self.YOUTUBE_API_KEY
+        if single and single.strip():
+            keys.append(single.strip())
+
+        # 3. Explicit slots 1 to 10
+        for i in range(1, 11):
+            var_name = f"YOUTUBE_API_KEY_{i}"
+            val = os.environ.get(var_name) or getattr(self, var_name, None)
+            if val and val.strip():
+                keys.append(val.strip())
+
+        # 4. Any dynamic YOUTUBE_API_KEY_* or YOUTUBE_KEY_* in environment
+        for k, v in os.environ.items():
+            if (
+                (k.startswith("YOUTUBE_API_KEY_") or k.startswith("YOUTUBE_KEY_"))
+                and v
+                and v.strip()
+                and v.strip() not in keys
+            ):
+                keys.append(v.strip())
+
+        # Deduplicate preserving order
+        seen = set()
+        deduped = []
+        for k in keys:
+            if k not in seen:
+                seen.add(k)
+                deduped.append(k)
+        return deduped
 
     def get_youtube_key_slot_diagnostics(self) -> list[dict[str, Any]]:
         """Return safe slot-by-slot presence report without revealing credentials."""
         import os
 
-        slots = [
-            ("Key #1 (YOUTUBE_API_KEY_1)", os.environ.get("YOUTUBE_API_KEY_1") or self.YOUTUBE_API_KEY_1),
-            ("Key #2 (YOUTUBE_API_KEY_2)", os.environ.get("YOUTUBE_API_KEY_2") or self.YOUTUBE_API_KEY_2),
-            ("Key #3 (YOUTUBE_API_KEY_3)", os.environ.get("YOUTUBE_API_KEY_3") or self.YOUTUBE_API_KEY_3),
-        ]
-        report = []
-        for name, val in slots:
+        slots: list[tuple[str, str | None]] = []
+        # Check standard slots 1 through 10
+        for i in range(1, 11):
+            var_name = f"YOUTUBE_API_KEY_{i}"
+            val = os.environ.get(var_name) or getattr(self, var_name, None)
             clean = val.strip() if val else None
+            present = bool(clean)
+            if present or i <= 4:  # always report at least slots 1-4, and any other slot that is present
+                slots.append((f"Key #{i} ({var_name})", clean))
+
+        if os.environ.get("YOUTUBE_API_KEY") or self.YOUTUBE_API_KEY:
+            single_val = os.environ.get("YOUTUBE_API_KEY") or self.YOUTUBE_API_KEY
+            slots.append(("Singular (YOUTUBE_API_KEY)", single_val.strip() if single_val else None))
+
+        report = []
+        for name, clean in slots:
             present = bool(clean)
             length = len(clean) if clean else 0
             report.append(

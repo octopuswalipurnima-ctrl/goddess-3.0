@@ -528,3 +528,34 @@ async def test_oauth_manager_invalid_grant():
         await oauth_mgr.get_valid_token(client)
 
     await client.aclose()
+
+
+def test_extra_youtube_api_keys_detection(monkeypatch):
+    """Verify that extra YouTube API keys (slot 4, 5, singular, or comma-separated) are properly loaded."""
+    from app.config import Settings
+
+    # Case 1: Slot 1, 2, 3 and extra slot 4 and 5
+    monkeypatch.setenv("YOUTUBE_API_KEY_1", "key-one")
+    monkeypatch.setenv("YOUTUBE_API_KEY_2", "key-two")
+    monkeypatch.setenv("YOUTUBE_API_KEY_3", "key-three")
+    monkeypatch.setenv("YOUTUBE_API_KEY_4", "key-four-extra")
+    monkeypatch.setenv("YOUTUBE_API_KEY_5", "key-five-extra")
+
+    s = Settings()
+    keys = s.get_youtube_keys()
+    assert len(keys) == 5
+    assert "key-four-extra" in keys
+    assert "key-five-extra" in keys
+
+    # Case 2: Comma-separated list in YOUTUBE_API_KEYS
+    monkeypatch.setenv("YOUTUBE_API_KEYS", "key-alpha, key-beta, key-gamma")
+    s2 = Settings()
+    keys2 = s2.get_youtube_keys()
+    assert "key-alpha" in keys2
+    assert "key-beta" in keys2
+    assert "key-gamma" in keys2
+
+    # Case 3: Slot diagnostics reports presence for all active slots
+    diag = s.get_youtube_key_slot_diagnostics()
+    assert any("YOUTUBE_API_KEY_4" in d["slot"] and d["present"] is True for d in diag)
+    assert any("YOUTUBE_API_KEY_5" in d["slot"] and d["present"] is True for d in diag)
