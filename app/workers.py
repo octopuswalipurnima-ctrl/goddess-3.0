@@ -23,7 +23,7 @@ from app.models import (
     Stream,
 )
 from app.moderation import ModerationEngine
-from app.utils import get_logger, normalize_text
+from app.utils import get_logger, normalize_text, parse_youtube_video_id
 from app.youtube import LiveDetectionResult, LiveDetectionStatus, YouTubeClient
 
 logger = get_logger("goddess.workers")
@@ -618,6 +618,119 @@ class StreamManager:
                     exc_info=True,
                 )
         return results
+
+    async def connect_manual_stream(self, url_or_id: str) -> dict[str, Any]:
+        """Manually connect bot to a YouTube Live stream by URL or video ID for testing."""
+        video_id = parse_youtube_video_id(url_or_id)
+        if not video_id:
+            return {
+                "success": False,
+                "error": f"Invalid YouTube link or video ID: '{url_or_id}'. Please paste a valid YouTube URL (e.g. https://www.youtube.com/watch?v=... or https://youtu.be/...)",
+            }
+
+        # Check if already connected
+        for ch_id, w in list(self._workers.items()):
+            if w._running and w.video_id == video_id:
+                return {
+                    "success": True,
+                    "video_id": video_id,
+                    "channel_id": ch_id,
+                    "live_chat_id": w.live_chat_id,
+                    "status": "ALREADY_CONNECTED",
+                    "message": f"Bot is already connected to live stream {video_id}.",
+                }
+
+        # Fetch video metadata and activeLiveChatId
+        video_info = await self.youtube.get_video_info(video_id)
+        if not video_info:
+            # Fallback to get_live_chat_id
+            live_chat_id = await self.youtube.get_live_chat_id(video_id)
+            if not live_chat_id:
+                return {
+                    "success": False,
+                    "error": f"Could not find an active live chat for video '{video_id}'. Please ensure the stream is currently LIVE and live chat is enabled.",
+                }
+            channel_id = "MANUAL_TEST_CHANNEL"
+            title = f"Live Stream ({video_id})"
+            channel_title = "Manual Test Channel"
+        else:
+            live_chat_id = video_info.get("live_chat_id")
+            channel_id = video_info.get("channel_id") or "MANUAL_TEST_CHANNEL"
+            title = video_info.get("title") or f"Live Stream ({video_id})"
+            channel_title = video_info.get("channel_title") or "YouTube Channel"
+
+        if not live_chat_id:
+            return {
+                "success": False,
+                "error": f"Video '{title}' ({video_id}) is not an active live stream or live chat is disabled.",
+            }
+
+        started = await self._check_and_start_stream(
+            channel_id=channel_id,
+            video_id=video_id,
+            title=title,
+        )
+        if started:
+            return {
+                "success": True,
+                "video_id": video_id,
+                "title": title,
+                "channel_id": channel_id,
+                "channel_title": channel_title,
+                "live_chat_id": live_chat_id,
+                "status": "CONNECTED",
+                "message": f"Successfully connected bot to '{title}' ({video_id})!",
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Failed to start worker for live stream '{title}' ({video_id}).",
+            }
+
+    async def disconnect_stream(self, channel_id_or_video_id: str) -> dict[str, Any]:
+        """Manually disconnect and stop a worker for a stream."""
+        target_ch: str | None = None
+        target_worker: ChatWorker | None = None
+
+        async with self._lock:
+            for ch_id, worker in list(self._workers.items()):
+                if ch_id == channel_id_or_video_id or worker.video_id == channel_id_or_video_id:
+                    target_ch = ch_id
+                    target_worker = worker
+                    break
+
+            if target_worker and target_ch:
+                await target_worker.stop()
+                await target_worker._handle_stream_end()
+                self._workers.pop(target_ch, None)
+                return {
+                    "success": True,
+                    "message": f"Successfully disconnected worker for video {target_worker.video_id}.",
+                }
+
+        return {
+            "success": False,
+            "error": f"No active worker found for '{channel_id_or_video_id}'.",
+        }
+
+    def get_active_streams_status(self) -> list[dict[str, Any]]:
+        """Return real-time diagnostic status of all currently active stream workers."""
+        active = []
+        for worker in list(self._workers.values()):
+            active.append(
+                {
+                    "channel_id": worker.channel_id,
+                    "video_id": worker.video_id,
+                    "live_chat_id": worker.live_chat_id,
+                    "stream_id": worker.stream_id,
+                    "state": worker.state.value if hasattr(worker.state, "value") else str(worker.state),
+                    "running": worker._running,
+                    "first_poll_done": worker._first_poll_done,
+                    "seen_messages_count": len(worker._seen_messages),
+                    "recent_messages": worker._recent_chat_buffer[-20:],
+                }
+            )
+        return active
 
     async def _periodic_discovery_loop(self) -> None:
         """Periodic safety net to discover active live streams with exponential backoff on errors."""

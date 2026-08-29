@@ -761,6 +761,33 @@ class YouTubeClient:
                 error_message=str(e),
             )
 
+    async def get_video_info(self, video_id: str) -> dict[str, Any] | None:
+        """Fetch video metadata and activeLiveChatId for a video ID."""
+        url = "https://www.googleapis.com/youtube/v3/videos"
+        params = {
+            "part": "liveStreamingDetails,snippet",
+            "id": video_id,
+        }
+        try:
+            data = await self._execute_read_request("videos.list", url, params)
+            items = data.get("items", [])
+            if items:
+                item = items[0]
+                snippet = item.get("snippet", {})
+                live_details = item.get("liveStreamingDetails", {})
+                return {
+                    "video_id": video_id,
+                    "title": snippet.get("title", ""),
+                    "channel_id": snippet.get("channelId", ""),
+                    "channel_title": snippet.get("channelTitle", ""),
+                    "live_chat_id": live_details.get("activeLiveChatId"),
+                    "broadcast_content": snippet.get("liveBroadcastContent"),
+                }
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching video info for {video_id}: {e}")
+            return None
+
     async def get_live_chat_id(self, video_id: str) -> str | None:
         """Resolve activeLiveChatId for a live video ID."""
         url = "https://www.googleapis.com/youtube/v3/videos"

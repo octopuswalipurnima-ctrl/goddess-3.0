@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response, status
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from sqlalchemy import select
 
 from app.config import settings
@@ -21,6 +21,7 @@ from app.database import (
 )
 from app.gemini import GeminiClient, GeminiKeyPool
 from app.models import Channel, ChannelSettings
+from app.ui import get_test_interface_html
 from app.utils import get_logger, setup_logging
 from app.workers import (
     OutboundMessageQueue,
@@ -221,14 +222,151 @@ app = FastAPI(
 )
 
 
-@app.get("/")
-async def root() -> dict[str, str]:
-    """Basic root service identity."""
+@app.get("/", response_model=None)
+async def root(request: Request) -> Response:
+    """Testing Console interface for browser requests; JSON service identity for API requests."""
+    accept = request.headers.get("accept", "").lower()
+    if "application/json" in accept and "text/html" not in accept:
+        return JSONResponse(
+            {
+                "app": "Goddess AI 3.0",
+                "cohost": "Honney",
+                "status": "online",
+                "ui": "/test",
+            }
+        )
+    return HTMLResponse(get_test_interface_html())
+
+
+@app.get("/test", response_class=HTMLResponse)
+async def test_console() -> HTMLResponse:
+    """Dedicated interactive bot testing console for pasting YouTube Live stream links and monitoring."""
+    return HTMLResponse(get_test_interface_html())
+
+
+# ---------------------------------------------------------------------------
+# Bot Testing API Endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/connect")
+async def api_connect(request: Request) -> dict[str, Any]:
+    """Manually connect bot to a YouTube Live stream by URL or video ID."""
+    body = await request.json()
+    url = body.get("url") or body.get("url_or_id") or body.get("link")
+    if not url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing stream 'url' parameter. Please provide a YouTube Live link or video ID.",
+        )
+    if not stream_manager:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="StreamManager is not initialized.",
+        )
+    return await stream_manager.connect_manual_stream(url)
+
+
+@app.post("/api/disconnect")
+async def api_disconnect(request: Request) -> dict[str, Any]:
+    """Disconnect and stop a running bot worker for a stream."""
+    body = await request.json()
+    target = body.get("video_id") or body.get("channel_id") or body.get("id")
+    if not target:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing 'video_id' or 'channel_id' parameter.",
+        )
+    if not stream_manager:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="StreamManager is not initialized.",
+        )
+    return await stream_manager.disconnect_stream(target)
+
+
+@app.get("/api/status")
+async def api_status() -> dict[str, Any]:
+    """Real-time bot status, active stream connections, and system diagnostics."""
+    db_ok, db_diag = await verify_database_connection(timeout_seconds=2.0)
+    schema_ok, missing_schema = await verify_database_schema(timeout_seconds=2.0)
+    yt_healthy = youtube_client.key_pool.get_healthy_count() if youtube_client else 0
+    oauth_ready = youtube_client.oauth.is_configured if youtube_client else False
+    active_streams = stream_manager.get_active_streams_status() if stream_manager else []
     return {
         "app": "Goddess AI 3.0",
-        "cohost": "Honney",
         "status": "online",
-        "ui": "YouTube Live Chat",
+        "database": {
+            "connected": db_ok,
+            "schema_ready": schema_ok,
+            "missing_schema": missing_schema,
+            "detail": db_diag,
+        },
+        "youtube_api_keys_healthy": yt_healthy,
+        "oauth_configured": oauth_ready,
+        "active_streams": active_streams,
+        "configured_channels": [
+            {
+                "channel_id": c.channel_id,
+                "name": c.name,
+                "enabled": c.enabled,
+                "auto_join": c.auto_join,
+            }
+            for c in settings.load_channels()
+        ],
+    }
+
+
+@app.post("/api/scan")
+async def api_scan() -> dict[str, Any]:
+    """Trigger immediate live stream scan across all configured channels."""
+    if not stream_manager:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="StreamManager is not initialized.",
+        )
+    results = await stream_manager.scan_all_channels_now()
+    return {
+        "success": True,
+        "results": {
+            ch_id: {
+                "status": res.status.value if hasattr(res.status, "value") else str(res.status),
+                "video_id": res.video_id,
+                "title": res.title,
+                "error": res.error_message,
+            }
+            for ch_id, res in results.items()
+        },
+    }
+
+
+@app.post("/api/send-message")
+async def api_send_message(request: Request) -> dict[str, Any]:
+    """Post a test chat message to an active live chat via the bot's authenticated OAuth account."""
+    body = await request.json()
+    live_chat_id = body.get("live_chat_id")
+    message = body.get("message")
+    if not live_chat_id or not message:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing 'live_chat_id' or 'message'.",
+        )
+    if not youtube_client:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="YouTube client is not initialized.",
+        )
+    if not youtube_client.oauth.is_configured:
+        return {
+            "success": False,
+            "error": "Google OAuth is not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and YOUTUBE_OAUTH_REFRESH_TOKEN.",
+        }
+    resp = await youtube_client.post_chat_message(live_chat_id, message)
+    if resp:
+        return {"success": True, "response": resp}
+    return {
+        "success": False,
+        "error": "Failed to post message to YouTube Live chat. Check OAuth token validity.",
     }
 
 

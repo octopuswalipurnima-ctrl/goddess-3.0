@@ -255,3 +255,41 @@ def extract_json_from_llm_response(raw_text: str) -> dict[str, Any] | None:
             logger.warning(f"Failed to parse JSON substring: {e}")
 
     return None
+
+
+def parse_youtube_video_id(url_or_id: str | None) -> str | None:
+    """
+    Extract an 11-character YouTube video ID from a URL, iframe, or raw ID string.
+    Supports:
+    - https://www.youtube.com/watch?v=VIDEO_ID
+    - https://youtu.be/VIDEO_ID
+    - https://www.youtube.com/live/VIDEO_ID
+    - https://www.youtube.com/embed/VIDEO_ID
+    - https://m.youtube.com/watch?v=VIDEO_ID
+    - https://www.youtube.com/shorts/VIDEO_ID
+    - Raw 11-character ID (e.g. g4Qb5C_Wnf0)
+    """
+    if not url_or_id:
+        return None
+
+    cleaned = url_or_id.strip()
+    if not cleaned:
+        return None
+
+    # Direct 11-character video ID
+    if re.fullmatch(r"[A-Za-z0-9_-]{11}", cleaned):
+        return cleaned
+
+    # Regex patterns for various YouTube URL structures
+    patterns = [
+        r"(?:v=|\/v\/|\/embed\/|\/live\/|\/shorts\/)([A-Za-z0-9_-]{11})",
+        r"youtu\.be\/([A-Za-z0-9_-]{11})",
+        r"youtube\.com\/watch\?.*?\bv=([A-Za-z0-9_-]{11})",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, cleaned)
+        if match:
+            return match.group(1)
+
+    return None
